@@ -31,10 +31,10 @@ var defaultRuleset = alpha1v1.RulesetSpec{
 		},
 		{
 			Action:      "ACCEPT",
-			Description: "Kubelet Health Checks",
-			Label:       "allow-kubelet-health-checks",
+			Description: "",
+			Label:       "allow-cluster-mgmt-tcp",
 			Protocol:    "TCP",
-			Ports:       "10250,10256",
+			Ports:       "53,179,5473,10250,10256",
 			Addresses: alpha1v1.AddressSpec{
 				IPv4: &[]string{"192.168.128.0/17"},
 			},
@@ -42,49 +42,9 @@ var defaultRuleset = alpha1v1.RulesetSpec{
 		{
 			Action:      "ACCEPT",
 			Description: "Cluster Wireguard Traffic",
-			Label:       "allow-lke-wireguard",
+			Label:       "allow-cluster-mgmt-udp",
 			Protocol:    "UDP",
-			Ports:       "51820",
-			Addresses: alpha1v1.AddressSpec{
-				IPv4: &[]string{"192.168.128.0/17"},
-			},
-		},
-		{
-			Action:      "ACCEPT",
-			Description: "Cluster DNS",
-			Label:       "allow-cluster-dns-tcp",
-			Protocol:    "TCP",
-			Ports:       "53",
-			Addresses: alpha1v1.AddressSpec{
-				IPv4: &[]string{"192.168.128.0/17"},
-			},
-		},
-		{
-			Action:      "ACCEPT",
-			Description: "Cluster DNS",
-			Label:       "allow-cluster-dns-udp",
-			Protocol:    "UDP",
-			Ports:       "53",
-			Addresses: alpha1v1.AddressSpec{
-				IPv4: &[]string{"192.168.128.0/17"},
-			},
-		},
-		{
-			Action:      "ACCEPT",
-			Description: "Calico BGP",
-			Label:       "allow-calico-bgp",
-			Protocol:    "TCP",
-			Ports:       "179",
-			Addresses: alpha1v1.AddressSpec{
-				IPv4: &[]string{"192.168.128.0/17"},
-			},
-		},
-		{
-			Action:      "ACCEPT",
-			Description: "Calico Typha",
-			Label:       "allow-calico-typha",
-			Protocol:    "TCP",
-			Ports:       "5473",
+			Ports:       "53,51820",
 			Addresses: alpha1v1.AddressSpec{
 				IPv4: &[]string{"192.168.128.0/17"},
 			},
@@ -125,6 +85,113 @@ var defaultRuleset = alpha1v1.RulesetSpec{
 }
 
 var defaultRulesetPrevious = []alpha1v1.RulesetSpec{
+	{
+		// 0.1.6
+		Inbound: []alpha1v1.RuleSpec{
+			{
+				Action:      "ACCEPT",
+				Description: "ICMP Traffic",
+				Label:       "allow-all-icmp",
+				Protocol:    "ICMP",
+				Addresses: alpha1v1.AddressSpec{
+					IPv4: &[]string{"0.0.0.0/0"},
+					IPv6: &[]string{"::/0"},
+				},
+			},
+			{
+				Action:      "ACCEPT",
+				Description: "Kubelet Health Checks",
+				Label:       "allow-kubelet-health-checks",
+				Protocol:    "TCP",
+				Ports:       "10250,10256",
+				Addresses: alpha1v1.AddressSpec{
+					IPv4: &[]string{"192.168.128.0/17"},
+				},
+			},
+			{
+				Action:      "ACCEPT",
+				Description: "Cluster Wireguard Traffic",
+				Label:       "allow-lke-wireguard",
+				Protocol:    "UDP",
+				Ports:       "51820",
+				Addresses: alpha1v1.AddressSpec{
+					IPv4: &[]string{"192.168.128.0/17"},
+				},
+			},
+			{
+				Action:      "ACCEPT",
+				Description: "Cluster DNS",
+				Label:       "allow-cluster-dns-tcp",
+				Protocol:    "TCP",
+				Ports:       "53",
+				Addresses: alpha1v1.AddressSpec{
+					IPv4: &[]string{"192.168.128.0/17"},
+				},
+			},
+			{
+				Action:      "ACCEPT",
+				Description: "Cluster DNS",
+				Label:       "allow-cluster-dns-udp",
+				Protocol:    "UDP",
+				Ports:       "53",
+				Addresses: alpha1v1.AddressSpec{
+					IPv4: &[]string{"192.168.128.0/17"},
+				},
+			},
+			{
+				Action:      "ACCEPT",
+				Description: "Calico BGP",
+				Label:       "allow-calico-bgp",
+				Protocol:    "TCP",
+				Ports:       "179",
+				Addresses: alpha1v1.AddressSpec{
+					IPv4: &[]string{"192.168.128.0/17"},
+				},
+			},
+			{
+				Action:      "ACCEPT",
+				Description: "Calico Typha",
+				Label:       "allow-calico-typha",
+				Protocol:    "TCP",
+				Ports:       "5473",
+				Addresses: alpha1v1.AddressSpec{
+					IPv4: &[]string{"192.168.128.0/17"},
+				},
+			},
+			{
+				Action:      "ACCEPT",
+				Description: "Cluster Nodeports",
+				Label:       "allow-cluster-nodeports-tcp",
+				Protocol:    "TCP",
+				Ports:       "30000-32767",
+				Addresses: alpha1v1.AddressSpec{
+					IPv4: &[]string{"192.168.255.0/24"},
+				},
+			},
+			{
+				Action:      "ACCEPT",
+				Description: "Cluster Nodeports",
+				Label:       "allow-cluster-nodeports-udp",
+				Protocol:    "UDP",
+				Ports:       "30000-32767",
+				Addresses: alpha1v1.AddressSpec{
+					IPv4: &[]string{"192.168.255.0/24"},
+				},
+			},
+			{
+				Action:      "ACCEPT",
+				Description: "IPENCAP Private",
+				Label:       "allow-cluster-ipencap",
+				Protocol:    "IPENCAP",
+				Addresses: alpha1v1.AddressSpec{
+					IPv4: &[]string{"192.168.128.0/17"},
+				},
+			},
+		},
+		InboundPolicy:  "DROP",
+		Outbound:       []alpha1v1.RuleSpec{},
+		OutboundPolicy: "ACCEPT",
+	},
 	{
 		// 0.1.4
 		Inbound: []alpha1v1.RuleSpec{
