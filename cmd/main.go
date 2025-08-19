@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	alpha1v1 "github.com/linode/cloud-firewall-controller/api/alpha1v1"
+	"github.com/linode/cloud-firewall-controller/internal/cache"
 	"github.com/linode/cloud-firewall-controller/internal/controller"
 	"github.com/linode/cloud-firewall-controller/internal/types"
 	// +kubebuilder:scaffold:imports
@@ -155,6 +156,10 @@ func main() {
 	if err = (&controller.CloudFirewallReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
+		Cache: cache.NewCloudFirewallCache(
+			controller.PrimaryFirewallName,
+			controller.PrimaryFirewallNs,
+		),
 	}).SetupWithManager(mgr, types.LinodeApiOptions{
 		Credentials:   apiCreds,
 		CredentialsNs: apiCredsNs,
