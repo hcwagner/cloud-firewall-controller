@@ -73,13 +73,19 @@ type CloudFirewallSpec struct {
 	DefaultRules *bool       `json:"defaultRules,omitempty"`
 	ImportID     string      `json:"firewall-id,omitempty"`
 	Ruleset      RulesetSpec `json:"ruleset,omitempty"`
+	// NodeSelector allows selecting specific nodes to apply the firewall to.
+	// If not specified, all nodes in the cluster are selected.
+	NodeSelector *metav1.LabelSelector `json:"nodeSelector,omitempty"`
+	// ServiceSelector allows selecting LoadBalancer services to apply the firewall to their NodeBalancers.
+	ServiceSelector *metav1.LabelSelector `json:"serviceSelector,omitempty"`
 }
 
 // CloudFirewallStatus defines the observed state of CloudFirewall
 type CloudFirewallStatus struct {
-	ID         string      `json:"firewall-id,omitempty"`
-	Nodes      []int       `json:"nodes,omitempty"`
-	LastUpdate metav1.Time `json:"last-update,omitempty"`
+	ID            string      `json:"firewall-id,omitempty"`
+	Nodes         []int       `json:"nodes,omitempty"`
+	NodeBalancers []int       `json:"nodeBalancers,omitempty"`
+	LastUpdate    metav1.Time `json:"last-update,omitempty"`
 }
 
 // +kubebuilder:object:root=true

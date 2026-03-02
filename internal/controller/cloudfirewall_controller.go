@@ -33,6 +33,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
@@ -125,14 +126,29 @@ func (r *CloudFirewallReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 	klog.Infof("[%s/%s] using credentials (%s/%s)", cf.Namespace, cf.Name, r.lApiOpts.Credentials, r.lApiOpts.CredentialsNs)
 
-	nodes, added, removed, err := nodeListChanges(ctx, cf, r.Client)
+	nodes, addedLinodes, removedLinodes, err := nodeListChanges(ctx, cf, r.Client)
 	if err != nil {
 		klog.Errorf("[%s/%s] failed to check node list - %s", cf.Namespace, cf.Name, err.Error())
 		return
 	}
 	klog.Infof("[%s/%s] current nodes: %v", cf.Namespace, cf.Name, nodes)
-	klog.Infof("[%s/%s] added nodes: %v", cf.Namespace, cf.Name, added)
-	klog.Infof("[%s/%s] removed nodes: %v", cf.Namespace, cf.Name, removed)
+	klog.Infof("[%s/%s] added nodes: %v", cf.Namespace, cf.Name, addedLinodes)
+	klog.Infof("[%s/%s] removed nodes: %v", cf.Namespace, cf.Name, removedLinodes)
+
+	nodeBalancers, err := getNodeBalancers(ctx, cf, r.Client, r.lcli)
+	if err != nil {
+		klog.Errorf("[%s/%s] failed to get nodebalancers - %s", cf.Namespace, cf.Name, err.Error())
+		return
+	}
+	klog.Infof("[%s/%s] current nodebalancers: %v", cf.Namespace, cf.Name, nodeBalancers)
+	addedNB, removedNB := nodeBalancerListChanges(nodeBalancers, cf.Status.NodeBalancers)
+	klog.Infof("[%s/%s] added nodebalancers: %v", cf.Namespace, cf.Name, addedNB)
+	klog.Infof("[%s/%s] removed nodebalancers: %v", cf.Namespace, cf.Name, removedNB)
+
+	if err = r.checkNodeConflicts(ctx, &cf, nodes, nodeBalancers); err != nil {
+		klog.Errorf("[%s/%s] node conflict detected - %s", cf.Namespace, cf.Name, err.Error())
+		return ctrl.Result{}, err
+	}
 
 	// Build the effective ruleset based on defaultRules flag and user-specified rules
 	effective := effectiveRulesetSpec(cf.Spec)
@@ -142,9 +158,8 @@ func (r *CloudFirewallReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	if !cf.Exists() {
-		firewallLabel := fmt.Sprint("lke-", r.ClusterID)
-		klog.Infof("[%s/%s] creating firewall label=(%s)", cf.Namespace, cf.Name, firewallLabel)
-		if err = r.createFirewall(ctx, nodes, &cf, newRuleset); err != nil {
+		klog.Infof("[%s/%s] creating firewall", cf.Namespace, cf.Name)
+		if err = r.createFirewall(ctx, nodes, nodeBalancers, &cf, newRuleset); err != nil {
 			klog.Infof("[%s/%s] failed to create firewall - %s", cf.Namespace, cf.Name, err.Error())
 		}
 		return
@@ -194,7 +209,7 @@ func (r *CloudFirewallReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if err != nil {
 		if FirewallIsNotFound(err) {
 			klog.Infof("[%s/%s] firewall id=(%d) not found - recreating", cf.Namespace, cf.Name, firewallID)
-			if err = r.createFirewall(ctx, nodes, &cf, newRuleset); err != nil {
+			if err = r.createFirewall(ctx, nodes, nodeBalancers, &cf, newRuleset); err != nil {
 				klog.Infof("[%s/%s] failed to create firewall - %s", cf.Namespace, cf.Name, err.Error())
 			}
 			// Either a firewall was created with the right node list or an error occured
@@ -216,20 +231,36 @@ func (r *CloudFirewallReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		klog.Infof("[%s/%s] firewall rules are up-to-date id=(%d)", cf.Namespace, cf.Name, firewallID)
 	}
 
-	if len(added) != 0 {
-		if err = r.addNodes(ctx, added, firewallID, &cf); err != nil {
+	if len(addedLinodes) != 0 {
+		if err = r.addNodes(ctx, addedLinodes, firewallID, &cf); err != nil {
 			klog.Infof("[%s/%s] failed to add nodes to firewall id=(%d) - %s", cf.Namespace, cf.Name, firewallID, err.Error())
 			return
 		}
-		klog.Infof("[%s/%s] added nodes to firewall id=(%d) nodes=(%v)", cf.Namespace, cf.Name, firewallID, added)
+		klog.Infof("[%s/%s] added nodes to firewall id=(%d) nodes=(%v)", cf.Namespace, cf.Name, firewallID, addedLinodes)
 	}
 
-	if len(removed) != 0 {
-		if err = r.removeNodes(ctx, removed, firewallID, &cf); err != nil {
+	if len(removedLinodes) != 0 {
+		if err = r.removeNodes(ctx, removedLinodes, firewallID, &cf); err != nil {
 			klog.Infof("[%s/%s] failed to remove nodes from firewall - %s", cf.Namespace, cf.Name, err.Error())
 			return
 		}
-		klog.Infof("[%s/%s] removed nodes from firewall id=(%d) nodes=(%v)", cf.Namespace, cf.Name, firewallID, removed)
+		klog.Infof("[%s/%s] removed nodes from firewall id=(%d) nodes=(%v)", cf.Namespace, cf.Name, firewallID, removedLinodes)
+	}
+
+	if len(addedNB) != 0 {
+		if err = r.addNodeBalancers(ctx, addedNB, firewallID, &cf); err != nil {
+			klog.Infof("[%s/%s] failed to add nodebalancers to firewall id=(%d) - %s", cf.Namespace, cf.Name, firewallID, err.Error())
+			return
+		}
+		klog.Infof("[%s/%s] added nodebalancers to firewall id=(%d) nodebalancers=(%v)", cf.Namespace, cf.Name, firewallID, addedNB)
+	}
+
+	if len(removedNB) != 0 {
+		if err = r.removeNodeBalancers(ctx, removedNB, firewallID, &cf); err != nil {
+			klog.Infof("[%s/%s] failed to remove nodebalancers from firewall - %s", cf.Namespace, cf.Name, err.Error())
+			return
+		}
+		klog.Infof("[%s/%s] removed nodebalancers from firewall id=(%d) nodebalancers=(%v)", cf.Namespace, cf.Name, firewallID, removedNB)
 	}
 	// On reconciliation success no need to reconcile unless triggered by Watch
 	// Periodically we can reconcile to verify status
@@ -351,12 +382,104 @@ func (r *CloudFirewallReconciler) addNodes(ctx context.Context, nodes []int, fir
 	return
 }
 
-func (r *CloudFirewallReconciler) createFirewall(ctx context.Context, nodes []int, cf *alpha1v1.CloudFirewall, rs lgo.FirewallRuleSet) (err error) {
+func (r *CloudFirewallReconciler) addNodeBalancers(ctx context.Context, nbs []int, firewallID int, cf *alpha1v1.CloudFirewall) (err error) {
+	for _, nb := range nbs {
+		opts := lgo.FirewallDeviceCreateOptions{
+			ID:   nb,
+			Type: lgo.FirewallDeviceNodeBalancer,
+		}
+		if _, err = r.lcli.CreateFirewallDevice(ctx, firewallID, opts); err != nil {
+			err = fmt.Errorf("failed to add nodebalancer (%d) to firewall (%d)", nb, firewallID)
+			return
+		}
+		cf.Status.NodeBalancers = append(cf.Status.NodeBalancers, nb)
+	}
+	return
+}
+
+func (r *CloudFirewallReconciler) removeNodeBalancers(ctx context.Context, nbs []int, firewallID int, cf *alpha1v1.CloudFirewall) (err error) {
+	for _, nb := range nbs {
+		if err = r.lcli.DeleteFirewallDevice(ctx, firewallID, nb); err != nil {
+			err = fmt.Errorf("failed to remove nodebalancer (%d) from firewall (%d) - %s", nb, firewallID, err.Error())
+		}
+		// Remove the nb from status list
+		idx := slices.Index(cf.Status.NodeBalancers, nb)
+		cf.Status.NodeBalancers = remove(cf.Status.NodeBalancers, idx)
+	}
+	return
+}
+
+func (r *CloudFirewallReconciler) checkNodeConflicts(ctx context.Context, cf *alpha1v1.CloudFirewall, nodes []int, nodeBalancers []int) error {
+	cfList := &alpha1v1.CloudFirewallList{}
+	if err := r.List(ctx, cfList); err != nil {
+		return fmt.Errorf("failed to list CloudFirewalls: %s", err.Error())
+	}
+	for _, otherCf := range cfList.Items {
+		if otherCf.Name == cf.Name && otherCf.Namespace == cf.Namespace {
+			continue
+		}
+		for _, nodeID := range nodes {
+			if slices.Contains(otherCf.Status.Nodes, nodeID) {
+				return fmt.Errorf("node %d is already assigned to CloudFirewall %s/%s", nodeID, otherCf.Namespace, otherCf.Name)
+			}
+		}
+		for _, nbID := range nodeBalancers {
+			if slices.Contains(otherCf.Status.NodeBalancers, nbID) {
+				return fmt.Errorf("nodebalancer %d is already assigned to CloudFirewall %s/%s", nbID, otherCf.Namespace, otherCf.Name)
+			}
+		}
+	}
+	return nil
+}
+
+func getNodeBalancers(ctx context.Context, cf alpha1v1.CloudFirewall, cli client.Client, lcli lgo.Client) ([]int, error) {
+	if cf.Spec.ServiceSelector == nil {
+		return nil, nil
+	}
+	svcList := &corev1.ServiceList{}
+	if err := cli.List(ctx, svcList); err != nil {
+		return nil, err
+	}
+	var filteredSvcs []corev1.Service
+	selector, err := metav1.LabelSelectorAsSelector(cf.Spec.ServiceSelector)
+	if err != nil {
+		return nil, err
+	}
+	for _, svc := range svcList.Items {
+		if svc.Spec.Type == corev1.ServiceTypeLoadBalancer && selector.Matches(labels.Set(svc.Labels)) {
+			filteredSvcs = append(filteredSvcs, svc)
+		}
+	}
+	var nbIDs []int
+	// Get all nodebalancers from Linode
+	nbs, err := lcli.ListNodeBalancers(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	// Map IP to ID
+	ipToID := make(map[string]int)
+	for _, nb := range nbs {
+		ipToID[*nb.IPv4] = nb.ID
+		ipToID[*nb.IPv6] = nb.ID
+	}
+	for _, svc := range filteredSvcs {
+		for _, ing := range svc.Status.LoadBalancer.Ingress {
+			if id, ok := ipToID[ing.IP]; ok {
+				nbIDs = append(nbIDs, id)
+			}
+		}
+	}
+	return nbIDs, nil
+}
+
+func (r *CloudFirewallReconciler) createFirewall(ctx context.Context, nodes []int, nodeBalancers []int, cf *alpha1v1.CloudFirewall, rs lgo.FirewallRuleSet) (err error) {
+	firewallLabel := fmt.Sprintf("lke-%s-%s-%s", r.ClusterID, cf.Namespace, cf.Name)
 	opts := lgo.FirewallCreateOptions{
-		Label: fmt.Sprint("lke-", r.ClusterID),
+		Label: firewallLabel,
 		Rules: rs,
 		Devices: lgo.DevicesCreationOptions{
-			Linodes: nodes,
+			Linodes:      nodes,
+			NodeBalancers: nodeBalancers,
 		},
 	}
 	var firewall *lgo.Firewall
@@ -365,6 +488,7 @@ func (r *CloudFirewallReconciler) createFirewall(ctx context.Context, nodes []in
 	} else {
 		cf.Status.ID = strconv.Itoa(firewall.ID)
 		cf.Status.Nodes = nodes
+		cf.Status.NodeBalancers = nodeBalancers
 	}
 	return
 }
@@ -377,9 +501,25 @@ func nodeListChanges(ctx context.Context, cf alpha1v1.CloudFirewall, cli client.
 		return
 	}
 
-	// Build list of NodeIDs
+	var filteredNodes []corev1.Node
+	if cf.Spec.NodeSelector != nil {
+		selector, err := metav1.LabelSelectorAsSelector(cf.Spec.NodeSelector)
+		if err != nil {
+			klog.Errorf("[%s/%s] invalid node selector: %v", cf.Namespace, cf.Name, err)
+			return nodes, added, removed, err
+		}
+		for _, node := range nodeList.Items {
+			if selector.Matches(labels.Set(node.Labels)) {
+				filteredNodes = append(filteredNodes, node)
+			}
+		}
+	} else {
+		filteredNodes = nodeList.Items
+	}
+
+	// Build list of NodeIDs from filtered nodes
 	// This could be optimized, but for simplicity it is what it is
-	for _, node := range nodeList.Items {
+	for _, node := range filteredNodes {
 		var nodeID int
 		if node.Spec.ProviderID == "" {
 			// On node deletion an event will be triggered and the node object will exists past
@@ -408,6 +548,20 @@ func nodeListChanges(ctx context.Context, cf alpha1v1.CloudFirewall, cli client.
 	for _, node := range cf.Status.Nodes {
 		if !slices.Contains(nodes, node) {
 			removed = append(removed, node)
+		}
+	}
+	return
+}
+
+func nodeBalancerListChanges(current []int, status []int) (added []int, removed []int) {
+	for _, nb := range current {
+		if !slices.Contains(status, nb) {
+			added = append(added, nb)
+		}
+	}
+	for _, nb := range status {
+		if !slices.Contains(current, nb) {
+			removed = append(removed, nb)
 		}
 	}
 	return
@@ -678,23 +832,6 @@ func (r *CloudFirewallReconciler) SetupWithManager(mgr ctrl.Manager, opts intern
 					return nil
 				}
 				reqs := make([]reconcile.Request, 0, len(cfList.Items))
-				// If for any reason no default CloudFirewall object exists attempt to create it
-				if len(cfList.Items) == 0 {
-					klog.Infof("no CloudFirewalls found")
-					cfObj := &alpha1v1.CloudFirewall{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "primary",
-							Namespace: "kube-system",
-						},
-						Spec: alpha1v1.CloudFirewallSpec{},
-					}
-					klog.Infof("[%s/%s] creating cluster default CloudFirewall object", cfObj.Namespace, cfObj.Name)
-					if err := mgr.GetClient().Create(ctx, cfObj); err != nil {
-						klog.Errorf("[%s/%s] failed to create default CloudFirewall - %s", cfObj.Namespace, cfObj.Name, err.Error())
-					}
-					// No need to schedule a reconcile here, the creation of the object will generate a reconciliation
-					return reqs
-				}
 
 				for _, item := range cfList.Items {
 
@@ -743,7 +880,50 @@ func (r *CloudFirewallReconciler) SetupWithManager(mgr ctrl.Manager, opts intern
 				predicate.Or(
 					predicate.GenerationChangedPredicate{},
 					predicate.AnnotationChangedPredicate{},
-				))).Complete(r)
+						))).
+					Watches(&corev1.Service{},
+						handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+              svc, ok := obj.(*corev1.Service)
+              if !ok {
+                  // This should almost never happen when using Watches(&corev1.Service{}, ...)
+                  klog.V(4).Infof("object was not a *corev1.Service: %T", obj)
+                  return nil
+              }
+
+							klog.V(2).Infof("[%s] service updated: %s", svc.GetNamespace(), svc.GetName())
+							if svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
+								return nil
+							}
+							cfList := &alpha1v1.CloudFirewallList{}
+							if err := mgr.GetClient().List(ctx, cfList); err != nil {
+								klog.Errorf("failed to list CloudFirewalls - %s", err.Error())
+								return nil
+							}
+							reqs := make([]reconcile.Request, 0, len(cfList.Items))
+							for _, item := range cfList.Items {
+								if item.Spec.ServiceSelector != nil {
+									selector, err := metav1.LabelSelectorAsSelector(item.Spec.ServiceSelector)
+									if err != nil {
+										continue
+									}
+									if selector.Matches(labels.Set(svc.Labels)) {
+										klog.V(2).Infof("[%s/%s] service matches selector, scheduling CloudFirewall reconciliation", item.Namespace, item.Name)
+										reqs = append(reqs, reconcile.Request{
+											NamespacedName: types.NamespacedName{
+												Namespace: item.GetNamespace(),
+												Name:      item.GetName(),
+											},
+										})
+									}
+								}
+							}
+							return reqs
+						}),
+						builder.WithPredicates(
+							predicate.Or(
+								predicate.GenerationChangedPredicate{},
+								predicate.AnnotationChangedPredicate{},
+							))).Complete(r)
 }
 
 func (r *CloudFirewallReconciler) createLinodeClient(opts internal.LinodeApiOptions) (err error) {
