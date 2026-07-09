@@ -37,12 +37,70 @@ readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 10
 
-# Additional Cloud Firewall rules can be added to the default set by adding them to the list below.
-# These will be applied along with the default ruleset. Any rule added here will below
-# applied to all nodes in the cluster.
+# Configure one or more CloudFirewall custom resources.
+# Preferred: use the `firewalls` list to define multiple firewalls.
+# Each entry supports:
+#   name: string (default "primary")
+#   namespace: string (default "kube-system")
+#   defaultRules: bool (default true in CRD; set explicitly to override)
+#   ruleset: { inbound: [], outbound: [], inbound_policy, outbound_policy }
+#   inbound / outbound: shorthand arrays (used if ruleset.* not provided)
+#   nodeSelector / serviceSelector: Kubernetes LabelSelector maps
+#
+# Example (recommended) — multiple firewalls:
+# firewalls:
+#   - name: primary
+#     namespace: kube-system
+#     # defaultRules: true
+#     ruleset:
+#       inbound_policy: "DROP"
+#       outbound_policy: "ACCEPT"
+#       inbound:
+#         - label: allow-ssh
+#           action: ACCEPT
+#           protocol: TCP
+#           ports: "22"
+#           addresses:
+#             ipv4: ["0.0.0.0/0"]
+#       # outbound: []
+#     # nodeSelector:
+#     #   matchLabels:
+#     #     node-role.kubernetes.io/worker: ""
+#     # serviceSelector:
+#     #   matchLabels:
+#     #     app: my-lb
+#
+#   - name: web-tier
+#     namespace: kube-system
+#     ruleset:
+#       inbound_policy: "DROP"
+#       outbound_policy: "ACCEPT"
+#       inbound:
+#         - label: allow-http
+#           action: ACCEPT
+#           protocol: TCP
+#           ports: "80"
+#           addresses:
+#             ipv4: ["0.0.0.0/0"]
+#         - label: allow-https
+#           action: ACCEPT
+#           protocol: TCP
+#           ports: "443"
+#           addresses:
+#             ipv4: ["0.0.0.0/0"]
+#     nodeSelector:
+#       matchLabels:
+#         tier: web
+#     serviceSelector:
+#       matchLabels:
+#         app: web-lb
+
+# LEGACY (single firewall map). Still supported for backward compatibility.
+# If `firewalls` list is not provided, a single CloudFirewall is rendered from this map.
+# Prefer the `firewalls` list above for new deployments.
 firewall: {}
-# Example custom inbound rule.
-#  inbound: 
+# Example custom inbound rule (legacy single-firewall style).
+#  inbound:
 #    - label:       "allow-custom-port"
 #      action:      "ACCEPT"
 #      description: "custom-rule"
@@ -51,6 +109,16 @@ firewall: {}
 #      addresses:
 #        ipv4:
 #        - "192.168.128.0/17"
+
+# nodeSelector / serviceSelector examples (legacy single map; applies to the single legacy firewall)
+#  nodeSelector:
+#    matchLabels:
+#      node-role.kubernetes.io/worker: ""
+#  serviceSelector:
+#    matchLabels:
+#      app: "my-loadbalancer"
+
+# If you want multiple firewalls, use the `firewalls` list (see above).
 
 nodeSelector: {}
 tolerations: []

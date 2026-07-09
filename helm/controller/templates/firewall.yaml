@@ -1,25 +1,64 @@
-{{- if .Values.firewall }}
+{{- /*
+  Collect the list of firewall definitions to render.
+
+  Preferred: .Values.firewalls (list of maps)
+  Fallback (legacy): wrap .Values.firewall (single map) into a list.
+*/ -}}
+{{- $firewalls := list -}}
+{{- if .Values.firewalls -}}
+  {{- /* Use the explicit list when provided */ -}}
+  {{- range .Values.firewalls -}}
+    {{- $firewalls = append $firewalls . -}}
+  {{- end -}}
+{{- else if .Values.firewall -}}
+  {{- /* Legacy single map: normalize into a list entry with defaults */ -}}
+  {{- $fw := deepCopy .Values.firewall -}}
+  {{- if not (hasKey $fw "name") -}}
+    {{- $_ := set $fw "name" "primary" -}}
+  {{- end -}}
+  {{- if not (hasKey $fw "namespace") -}}
+    {{- $_ := set $fw "namespace" "kube-system" -}}
+  {{- end -}}
+  {{- $firewalls = append $firewalls $fw -}}
+{{- end -}}
+
+{{- range $i, $fw := $firewalls -}}
+{{- if gt $i 0 }}
+---
+{{- end }}
 apiVersion: networking.linode.com/alpha1v1
 kind: CloudFirewall
 metadata:
-  name: primary
-  namespace: kube-system
+  name: {{ default "primary" $fw.name }}
+  namespace: {{ default "kube-system" $fw.namespace }}
 spec:
-  # defaultRules is true by default; leave empty to use defaults only
-  # defaultRules: true
+  {{- if hasKey $fw "defaultRules" }}
+  defaultRules: {{ $fw.defaultRules }}
+  {{- end }}
   ruleset:
-    # Policies default to DROP/ACCEPT; override if desired
-    # inbound_policy:  "DROP"
-    # outbound_policy: "ACCEPT"
-    {{- if and (hasKey .Values.firewall "outbound") (gt (len .Values.firewall.outbound) 0) }}
-    outbound: {{ toYaml .Values.firewall.outbound | nindent 6 }}
-    {{- else }}
-    outbound: []
-    {{- end }}
+    {{- /*
+      Resolve rules from either:
+      - $fw.ruleset.{inbound,outbound,inbound_policy,outbound_policy}, or
+      - top-level shorthand: $fw.{inbound,outbound,inbound_policy,outbound_policy}
+      Default policies: DROP (in), ACCEPT (out)
+    */ -}}
+    {{- $rs := $fw.ruleset | default dict -}}
+    {{- $inbound := $rs.inbound | default $fw.inbound | default list -}}
+    {{- $outbound := $rs.outbound | default $fw.outbound | default list -}}
+    {{- $inPolicy := $rs.inbound_policy | default $fw.inbound_policy | default "DROP" -}}
+    {{- $outPolicy := $rs.outbound_policy | default $fw.outbound_policy | default "ACCEPT" -}}
+    inbound_policy: {{ $inPolicy | quote }}
+    outbound_policy: {{ $outPolicy | quote }}
     inbound:
-      {{- if .Values.firewall.inbound }}
-      {{ toYaml .Values.firewall.inbound | nindent 6 }}
-      {{- else }}
-      []
-      {{- end }}
+{{ toYaml $inbound | indent 6 }}
+    outbound:
+{{ toYaml $outbound | indent 6 }}
+  {{- with $fw.nodeSelector }}
+  nodeSelector:
+{{ toYaml . | indent 4 }}
+  {{- end }}
+  {{- with $fw.serviceSelector }}
+  serviceSelector:
+{{ toYaml . | indent 4 }}
+  {{- end }}
 {{- end }}
