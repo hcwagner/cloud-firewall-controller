@@ -17,48 +17,48 @@ limitations under the License.
 package controller
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"net"
-	"net/http"
-	"reflect"
-	"slices"
-	"sort"
-	"strconv"
-	"strings"
-	"time"
+  "context"
+  "encoding/json"
+  "fmt"
+  "net"
+  "net/http"
+  "reflect"
+  "slices"
+  "sort"
+  "strconv"
+  "strings"
+  "time"
 
-	"golang.org/x/oauth2"
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/klog/v2"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+  "golang.org/x/oauth2"
+  appsv1 "k8s.io/api/apps/v1"
+  corev1 "k8s.io/api/core/v1"
+  metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+  "k8s.io/apimachinery/pkg/labels"
+  "k8s.io/apimachinery/pkg/runtime"
+  "k8s.io/apimachinery/pkg/types"
+  "k8s.io/klog/v2"
+  ctrl "sigs.k8s.io/controller-runtime"
+  "sigs.k8s.io/controller-runtime/pkg/builder"
+  "sigs.k8s.io/controller-runtime/pkg/client"
+  "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+  "sigs.k8s.io/controller-runtime/pkg/handler"
+  "sigs.k8s.io/controller-runtime/pkg/log"
+  "sigs.k8s.io/controller-runtime/pkg/predicate"
+  "sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	alpha1v1 "github.com/linode/cloud-firewall-controller/api/alpha1v1"
-	"github.com/linode/cloud-firewall-controller/internal/rules"
-	internal "github.com/linode/cloud-firewall-controller/internal/types"
-	lgo "github.com/linode/linodego"
+  alpha1v1 "github.com/linode/cloud-firewall-controller/api/alpha1v1"
+  "github.com/linode/cloud-firewall-controller/internal/rules"
+  internal "github.com/linode/cloud-firewall-controller/internal/types"
+  lgo "github.com/linode/linodego"
 )
 
 // CloudFirewallReconciler reconciles a CloudFirewall object
 type CloudFirewallReconciler struct {
-	client.Client
-	Scheme    *runtime.Scheme
-	lcli      lgo.Client
-	lApiOpts  internal.LinodeApiOptions
-	ClusterID string
+  client.Client
+  Scheme    *runtime.Scheme
+  lcli      lgo.Client
+  lApiOpts  internal.LinodeApiOptions
+  ClusterID string
 }
 
 // +kubebuilder:rbac:groups=networking.linode.com,resources=cloudfirewalls,verbs=get;list;watch;create;update;patch;delete
@@ -73,882 +73,882 @@ type CloudFirewallReconciler struct {
 //+kubebuilder:rbac:groups="",namespace=kube-system,resourceNames=linode,resources=secrets,verbs=get;list;watch
 
 func (r *CloudFirewallReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, err error) {
-	_ = log.FromContext(ctx)
-	var original alpha1v1.CloudFirewall
-	var cf alpha1v1.CloudFirewall
-	var deleted bool
+  _ = log.FromContext(ctx)
+  var original alpha1v1.CloudFirewall
+  var cf alpha1v1.CloudFirewall
+  var deleted bool
 
-	// This defer uses a deepcopy of the fetched CloudFirewall object to detect whether any Status updates
-	// occured during the course of a reconciliation. If any changes have occured the Status will be updated
-	// in etcd to be reflected into any subsequent reconciliations.
-	defer func() {
-		if deleted {
-			// do nothing the object is being removed
-		} else if !reflect.DeepEqual(cf.ObjectMeta, original.ObjectMeta) {
-			// If the metadata has changed we need to update the whole object
-			klog.V(1).Infof("[%s/%s] metadata change detected current(%+v) update(%+v)", cf.Namespace, cf.Name, original.ObjectMeta, cf.ObjectMeta)
-			cf.Status.LastUpdate = metav1.Time{Time: time.Now()}
-			if e := r.Update(ctx, &cf); e != nil {
-				err = fmt.Errorf("CloudFirewall update failed: err=%s", e)
-			}
-		} else if !reflect.DeepEqual(cf.Status, original.Status) {
-			// Otherwise we can just update the internal status
-			klog.V(1).Infof("[%s/%s] status change detected current(%+v) update(%+v)", cf.Namespace, cf.Name, original.Status, cf.Status)
-			cf.Status.LastUpdate = metav1.Time{Time: time.Now()}
-			if e := r.Status().Update(ctx, &cf); e != nil {
-				err = fmt.Errorf("CloudFirewall status update failed: err=%s", e)
-			}
-		}
-	}()
+  // This defer uses a deepcopy of the fetched CloudFirewall object to detect whether any Status updates
+  // occured during the course of a reconciliation. If any changes have occured the Status will be updated
+  // in etcd to be reflected into any subsequent reconciliations.
+  defer func() {
+    if deleted {
+      // do nothing the object is being removed
+    } else if !reflect.DeepEqual(cf.ObjectMeta, original.ObjectMeta) {
+      // If the metadata has changed we need to update the whole object
+      klog.V(1).Infof("[%s/%s] metadata change detected current(%+v) update(%+v)", cf.Namespace, cf.Name, original.ObjectMeta, cf.ObjectMeta)
+      cf.Status.LastUpdate = metav1.Time{Time: time.Now()}
+      if e := r.Update(ctx, &cf); e != nil {
+        err = fmt.Errorf("CloudFirewall update failed: err=%s", e)
+      }
+    } else if !reflect.DeepEqual(cf.Status, original.Status) {
+      // Otherwise we can just update the internal status
+      klog.V(1).Infof("[%s/%s] status change detected current(%+v) update(%+v)", cf.Namespace, cf.Name, original.Status, cf.Status)
+      cf.Status.LastUpdate = metav1.Time{Time: time.Now()}
+      if e := r.Status().Update(ctx, &cf); e != nil {
+        err = fmt.Errorf("CloudFirewall status update failed: err=%s", e)
+      }
+    }
+  }()
 
-	// We require a CloudFirewall object in etcd to track state across reconciliations
-	if err = r.Get(ctx, req.NamespacedName, &cf); err != nil {
-		klog.Errorf("[%s/%s] failed to fetch CloudFirewall state - %s", req.Namespace, req.Name, err.Error())
-		// If the object no longer exists we don't want to come back
-		return ctrl.Result{}, nil
-	}
-	// Save current state to compare in the defer function
-	original = *cf.DeepCopy()
+  // We require a CloudFirewall object in etcd to track state across reconciliations
+  if err = r.Get(ctx, req.NamespacedName, &cf); err != nil {
+    klog.Errorf("[%s/%s] failed to fetch CloudFirewall state - %s", req.Namespace, req.Name, err.Error())
+    // If the object no longer exists we don't want to come back
+    return ctrl.Result{}, nil
+  }
+  // Save current state to compare in the defer function
+  original = *cf.DeepCopy()
 
-	// Fetch clusterID from cluster API. Occurs once per controller instantiation
-	if r.ClusterID == "" {
-		if r.ClusterID, err = getClusterID(ctx, r.Client); err != nil {
-			klog.Errorf("[%s/%s] failed to get clusterID - %s", req.Namespace, req.Name, err.Error())
-			return
-		}
-	}
-	klog.Infof("[%s/%s] using clusterID (%s)", cf.Namespace, cf.Name, r.ClusterID)
+  // Fetch clusterID from cluster API. Occurs once per controller instantiation
+  if r.ClusterID == "" {
+    if r.ClusterID, err = getClusterID(ctx, r.Client); err != nil {
+      klog.Errorf("[%s/%s] failed to get clusterID - %s", req.Namespace, req.Name, err.Error())
+      return
+    }
+  }
+  klog.Infof("[%s/%s] using clusterID (%s)", cf.Namespace, cf.Name, r.ClusterID)
 
-	if err = r.createLinodeClient(r.lApiOpts); err != nil {
-		// can't proceed without valid Linode Creds, retry on exponential backoff
-		klog.Errorf("[%s/%s] failed to get API credentials - %s", r.lApiOpts.Credentials, r.lApiOpts.CredentialsNs, err.Error())
-		return
-	}
-	klog.Infof("[%s/%s] using credentials (%s/%s)", cf.Namespace, cf.Name, r.lApiOpts.Credentials, r.lApiOpts.CredentialsNs)
+  if err = r.createLinodeClient(r.lApiOpts); err != nil {
+    // can't proceed without valid Linode Creds, retry on exponential backoff
+    klog.Errorf("[%s/%s] failed to get API credentials - %s", r.lApiOpts.Credentials, r.lApiOpts.CredentialsNs, err.Error())
+    return
+  }
+  klog.Infof("[%s/%s] using credentials (%s/%s)", cf.Namespace, cf.Name, r.lApiOpts.Credentials, r.lApiOpts.CredentialsNs)
 
-	nodes, addedLinodes, removedLinodes, err := nodeListChanges(ctx, cf, r.Client)
-	if err != nil {
-		klog.Errorf("[%s/%s] failed to check node list - %s", cf.Namespace, cf.Name, err.Error())
-		return
-	}
-	klog.Infof("[%s/%s] current nodes: %v", cf.Namespace, cf.Name, nodes)
-	klog.Infof("[%s/%s] added nodes: %v", cf.Namespace, cf.Name, addedLinodes)
-	klog.Infof("[%s/%s] removed nodes: %v", cf.Namespace, cf.Name, removedLinodes)
+  nodes, addedLinodes, removedLinodes, err := nodeListChanges(ctx, cf, r.Client)
+  if err != nil {
+    klog.Errorf("[%s/%s] failed to check node list - %s", cf.Namespace, cf.Name, err.Error())
+    return
+  }
+  klog.Infof("[%s/%s] current nodes: %v", cf.Namespace, cf.Name, nodes)
+  klog.Infof("[%s/%s] added nodes: %v", cf.Namespace, cf.Name, addedLinodes)
+  klog.Infof("[%s/%s] removed nodes: %v", cf.Namespace, cf.Name, removedLinodes)
 
-	nodeBalancers, err := getNodeBalancers(ctx, cf, r.Client, r.lcli)
-	if err != nil {
-		klog.Errorf("[%s/%s] failed to get nodebalancers - %s", cf.Namespace, cf.Name, err.Error())
-		return
-	}
-	klog.Infof("[%s/%s] current nodebalancers: %v", cf.Namespace, cf.Name, nodeBalancers)
-	addedNB, removedNB := nodeBalancerListChanges(nodeBalancers, cf.Status.NodeBalancers)
-	klog.Infof("[%s/%s] added nodebalancers: %v", cf.Namespace, cf.Name, addedNB)
-	klog.Infof("[%s/%s] removed nodebalancers: %v", cf.Namespace, cf.Name, removedNB)
+  nodeBalancers, err := getNodeBalancers(ctx, cf, r.Client, r.lcli)
+  if err != nil {
+    klog.Errorf("[%s/%s] failed to get nodebalancers - %s", cf.Namespace, cf.Name, err.Error())
+    return
+  }
+  klog.Infof("[%s/%s] current nodebalancers: %v", cf.Namespace, cf.Name, nodeBalancers)
+  addedNB, removedNB := nodeBalancerListChanges(nodeBalancers, cf.Status.NodeBalancers)
+  klog.Infof("[%s/%s] added nodebalancers: %v", cf.Namespace, cf.Name, addedNB)
+  klog.Infof("[%s/%s] removed nodebalancers: %v", cf.Namespace, cf.Name, removedNB)
 
-	if err = r.checkNodeConflicts(ctx, &cf, nodes, nodeBalancers); err != nil {
-		klog.Errorf("[%s/%s] node conflict detected - %s", cf.Namespace, cf.Name, err.Error())
-		return ctrl.Result{}, err
-	}
+  if err = r.checkNodeConflicts(ctx, &cf, nodes, nodeBalancers); err != nil {
+    klog.Errorf("[%s/%s] node conflict detected - %s", cf.Namespace, cf.Name, err.Error())
+    return ctrl.Result{}, err
+  }
 
-	// Build the effective ruleset based on defaultRules flag and user-specified rules
-	effective := effectiveRulesetSpec(cf.Spec)
-	newRuleset, err := toLinodeFirewallRuleset(effective)
-	if err != nil {
-		klog.Infof("[%s/%s] failed to convert FirewallRuleset - %s", cf.Namespace, cf.Name, err.Error())
-	}
+  // Build the effective ruleset based on defaultRules flag and user-specified rules
+  effective := effectiveRulesetSpec(cf.Spec)
+  newRuleset, err := toLinodeFirewallRuleset(effective)
+  if err != nil {
+    klog.Infof("[%s/%s] failed to convert FirewallRuleset - %s", cf.Namespace, cf.Name, err.Error())
+  }
 
-	if !cf.Exists() {
-		klog.Infof("[%s/%s] creating firewall", cf.Namespace, cf.Name)
-		if err = r.createFirewall(ctx, nodes, nodeBalancers, &cf, newRuleset); err != nil {
-			klog.Infof("[%s/%s] failed to create firewall - %s", cf.Namespace, cf.Name, err.Error())
-		}
-		return
-	}
+  if !cf.Exists() {
+    klog.Infof("[%s/%s] creating firewall", cf.Namespace, cf.Name)
+    if err = r.createFirewall(ctx, nodes, nodeBalancers, &cf, newRuleset); err != nil {
+      klog.Infof("[%s/%s] failed to create firewall - %s", cf.Namespace, cf.Name, err.Error())
+    }
+    return
+  }
 
-	// Rate limit how often we hit the Linode API
-	// The incremental steps taken to add nodes to the cluster results in triggering several
-	// reconciliations per node, which can hammer to API for a short period of time with Get calls.
-	// In order to reduce that and give the scheduler a chance to flatten the reconcile calls this
-	// introduces a small wait period.
-	minimumUpdateDuration := time.Second * 10
-	if time.Since(cf.Status.LastUpdate.Time) < time.Second*10 {
-		klog.Infof("[%s/%s] update duration not met - requeuing %v", cf.Namespace, cf.Name, minimumUpdateDuration)
-		return ctrl.Result{
-			RequeueAfter: minimumUpdateDuration,
-			Requeue:      true,
-		}, nil
-	}
+  // Rate limit how often we hit the Linode API
+  // The incremental steps taken to add nodes to the cluster results in triggering several
+  // reconciliations per node, which can hammer to API for a short period of time with Get calls.
+  // In order to reduce that and give the scheduler a chance to flatten the reconcile calls this
+  // introduces a small wait period.
+  minimumUpdateDuration := time.Second * 10
+  if time.Since(cf.Status.LastUpdate.Time) < time.Second*10 {
+    klog.Infof("[%s/%s] update duration not met - requeuing %v", cf.Namespace, cf.Name, minimumUpdateDuration)
+    return ctrl.Result{
+      RequeueAfter: minimumUpdateDuration,
+      Requeue:      true,
+    }, nil
+  }
 
-	var firewall *lgo.Firewall
-	firewallID, err := cf.GetID()
-	if err != nil {
-		klog.Errorf("[%s/%s] failed to get firewallID - %s", cf.Namespace, cf.Name, err.Error())
-		return
-	}
+  var firewall *lgo.Firewall
+  firewallID, err := cf.GetID()
+  if err != nil {
+    klog.Errorf("[%s/%s] failed to get firewallID - %s", cf.Namespace, cf.Name, err.Error())
+    return
+  }
 
-	if err = r.checkOwnership(ctx, &cf); err != nil {
-		klog.Errorf("[%s/%s] failed finalizer check - %s", cf.Namespace, cf.Name, err.Error())
-		return ctrl.Result{
-			RequeueAfter: minimumUpdateDuration,
-			Requeue:      true,
-		}, err
-	}
+  if err = r.checkOwnership(ctx, &cf); err != nil {
+    klog.Errorf("[%s/%s] failed finalizer check - %s", cf.Namespace, cf.Name, err.Error())
+    return ctrl.Result{
+      RequeueAfter: minimumUpdateDuration,
+      Requeue:      true,
+    }, err
+  }
 
-	if deleted, err = r.checkFinalizer(ctx, &cf); err != nil {
-		klog.Errorf("[%s/%s] failed finalizer check - %s", cf.Namespace, cf.Name, err.Error())
-		return ctrl.Result{
-			RequeueAfter: minimumUpdateDuration,
-			Requeue:      true,
-		}, err
-	} else if deleted {
-		return
-	}
+  if deleted, err = r.checkFinalizer(ctx, &cf); err != nil {
+    klog.Errorf("[%s/%s] failed finalizer check - %s", cf.Namespace, cf.Name, err.Error())
+    return ctrl.Result{
+      RequeueAfter: minimumUpdateDuration,
+      Requeue:      true,
+    }, err
+  } else if deleted {
+    return
+  }
 
-	klog.Infof("[%s/%s] getting firewall id=(%d)", cf.Namespace, cf.Name, firewallID)
-	firewall, err = r.lcli.GetFirewall(ctx, firewallID)
-	if err != nil {
-		if FirewallIsNotFound(err) {
-			klog.Infof("[%s/%s] firewall id=(%d) not found - recreating", cf.Namespace, cf.Name, firewallID)
-			if err = r.createFirewall(ctx, nodes, nodeBalancers, &cf, newRuleset); err != nil {
-				klog.Infof("[%s/%s] failed to create firewall - %s", cf.Namespace, cf.Name, err.Error())
-			}
-			// Either a firewall was created with the right node list or an error occured
-			return
-		} else {
-			klog.Infof("[%s/%s] failed to get firewall id=(%d) - %s", cf.Namespace, cf.Name, firewallID, err.Error())
-			return
-		}
-	}
+  klog.Infof("[%s/%s] getting firewall id=(%d)", cf.Namespace, cf.Name, firewallID)
+  firewall, err = r.lcli.GetFirewall(ctx, firewallID)
+  if err != nil {
+    if FirewallIsNotFound(err) {
+      klog.Infof("[%s/%s] firewall id=(%d) not found - recreating", cf.Namespace, cf.Name, firewallID)
+      if err = r.createFirewall(ctx, nodes, nodeBalancers, &cf, newRuleset); err != nil {
+        klog.Infof("[%s/%s] failed to create firewall - %s", cf.Namespace, cf.Name, err.Error())
+      }
+      // Either a firewall was created with the right node list or an error occured
+      return
+    } else {
+      klog.Infof("[%s/%s] failed to get firewall id=(%d) - %s", cf.Namespace, cf.Name, firewallID, err.Error())
+      return
+    }
+  }
 
-	if !equalFirewallRuleSets(&firewall.Rules, &newRuleset) {
-		klog.Infof("[%s/%s] changes found in firewall rules id=(%d)", cf.Namespace, cf.Name, firewallID)
-		if _, err = r.lcli.UpdateFirewallRules(ctx, firewallID, newRuleset); err != nil {
-			klog.Infof("[%s/%s] failed to update firewall rules id=(%d) - %s", cf.Namespace, cf.Name, firewallID, err.Error())
-			return
-		}
-		klog.Infof("[%s/%s] updated firewall rules id=(%d)", cf.Namespace, cf.Name, firewallID)
-	} else {
-		klog.Infof("[%s/%s] firewall rules are up-to-date id=(%d)", cf.Namespace, cf.Name, firewallID)
-	}
+  if !equalFirewallRuleSets(&firewall.Rules, &newRuleset) {
+    klog.Infof("[%s/%s] changes found in firewall rules id=(%d)", cf.Namespace, cf.Name, firewallID)
+    if _, err = r.lcli.UpdateFirewallRules(ctx, firewallID, newRuleset); err != nil {
+      klog.Infof("[%s/%s] failed to update firewall rules id=(%d) - %s", cf.Namespace, cf.Name, firewallID, err.Error())
+      return
+    }
+    klog.Infof("[%s/%s] updated firewall rules id=(%d)", cf.Namespace, cf.Name, firewallID)
+  } else {
+    klog.Infof("[%s/%s] firewall rules are up-to-date id=(%d)", cf.Namespace, cf.Name, firewallID)
+  }
 
-	if len(addedLinodes) != 0 {
-		if err = r.addNodes(ctx, addedLinodes, firewallID, &cf); err != nil {
-			klog.Infof("[%s/%s] failed to add nodes to firewall id=(%d) - %s", cf.Namespace, cf.Name, firewallID, err.Error())
-			return
-		}
-		klog.Infof("[%s/%s] added nodes to firewall id=(%d) nodes=(%v)", cf.Namespace, cf.Name, firewallID, addedLinodes)
-	}
+  if len(addedLinodes) != 0 {
+    if err = r.addNodes(ctx, addedLinodes, firewallID, &cf); err != nil {
+      klog.Infof("[%s/%s] failed to add nodes to firewall id=(%d) - %s", cf.Namespace, cf.Name, firewallID, err.Error())
+      return
+    }
+    klog.Infof("[%s/%s] added nodes to firewall id=(%d) nodes=(%v)", cf.Namespace, cf.Name, firewallID, addedLinodes)
+  }
 
-	if len(removedLinodes) != 0 {
-		if err = r.removeNodes(ctx, removedLinodes, firewallID, &cf); err != nil {
-			klog.Infof("[%s/%s] failed to remove nodes from firewall - %s", cf.Namespace, cf.Name, err.Error())
-			return
-		}
-		klog.Infof("[%s/%s] removed nodes from firewall id=(%d) nodes=(%v)", cf.Namespace, cf.Name, firewallID, removedLinodes)
-	}
+  if len(removedLinodes) != 0 {
+    if err = r.removeNodes(ctx, removedLinodes, firewallID, &cf); err != nil {
+      klog.Infof("[%s/%s] failed to remove nodes from firewall - %s", cf.Namespace, cf.Name, err.Error())
+      return
+    }
+    klog.Infof("[%s/%s] removed nodes from firewall id=(%d) nodes=(%v)", cf.Namespace, cf.Name, firewallID, removedLinodes)
+  }
 
-	if len(addedNB) != 0 {
-		if err = r.addNodeBalancers(ctx, addedNB, firewallID, &cf); err != nil {
-			klog.Infof("[%s/%s] failed to add nodebalancers to firewall id=(%d) - %s", cf.Namespace, cf.Name, firewallID, err.Error())
-			return
-		}
-		klog.Infof("[%s/%s] added nodebalancers to firewall id=(%d) nodebalancers=(%v)", cf.Namespace, cf.Name, firewallID, addedNB)
-	}
+  if len(addedNB) != 0 {
+    if err = r.addNodeBalancers(ctx, addedNB, firewallID, &cf); err != nil {
+      klog.Infof("[%s/%s] failed to add nodebalancers to firewall id=(%d) - %s", cf.Namespace, cf.Name, firewallID, err.Error())
+      return
+    }
+    klog.Infof("[%s/%s] added nodebalancers to firewall id=(%d) nodebalancers=(%v)", cf.Namespace, cf.Name, firewallID, addedNB)
+  }
 
-	if len(removedNB) != 0 {
-		if err = r.removeNodeBalancers(ctx, removedNB, firewallID, &cf); err != nil {
-			klog.Infof("[%s/%s] failed to remove nodebalancers from firewall - %s", cf.Namespace, cf.Name, err.Error())
-			return
-		}
-		klog.Infof("[%s/%s] removed nodebalancers from firewall id=(%d) nodebalancers=(%v)", cf.Namespace, cf.Name, firewallID, removedNB)
-	}
-	// On reconciliation success no need to reconcile unless triggered by Watch
-	// Periodically we can reconcile to verify status
-	klog.Infof("[%s/%s] reconcile complete firewall id=(%d)", cf.Namespace, cf.Name, firewallID)
-	return ctrl.Result{
-		Requeue:      false,
-		RequeueAfter: 10 * time.Hour,
-	}, nil
+  if len(removedNB) != 0 {
+    if err = r.removeNodeBalancers(ctx, removedNB, firewallID, &cf); err != nil {
+      klog.Infof("[%s/%s] failed to remove nodebalancers from firewall - %s", cf.Namespace, cf.Name, err.Error())
+      return
+    }
+    klog.Infof("[%s/%s] removed nodebalancers from firewall id=(%d) nodebalancers=(%v)", cf.Namespace, cf.Name, firewallID, removedNB)
+  }
+  // On reconciliation success no need to reconcile unless triggered by Watch
+  // Periodically we can reconcile to verify status
+  klog.Infof("[%s/%s] reconcile complete firewall id=(%d)", cf.Namespace, cf.Name, firewallID)
+  return ctrl.Result{
+    Requeue:      false,
+    RequeueAfter: 10 * time.Hour,
+  }, nil
 }
 
 func remove(s []int, i int) []int {
-	s[i] = s[len(s)-1]
-	return s[:len(s)-1]
+  s[i] = s[len(s)-1]
+  return s[:len(s)-1]
 }
 
 func (r *CloudFirewallReconciler) checkOwnership(ctx context.Context, cf *alpha1v1.CloudFirewall) error {
-	owner := metav1.GetControllerOf(cf)
-	if owner != nil {
-		return nil
-	}
+  owner := metav1.GetControllerOf(cf)
+  if owner != nil {
+    return nil
+  }
 
-	// If the CloudFirewall has no owner attach it to this controller so it can be garbage
-	// collected if the controller is deleted.
-	ctrlDpl := appsv1.Deployment{}
-	err := r.Get(ctx, client.ObjectKey{
-		Name:      "cloud-firewall-controller",
-		Namespace: "kube-system",
-	},
-		&ctrlDpl)
-	if err != nil {
-		return fmt.Errorf("failed to get controller deployment: %s", err.Error())
-	}
+  // If the CloudFirewall has no owner attach it to this controller so it can be garbage
+  // collected if the controller is deleted.
+  ctrlDpl := appsv1.Deployment{}
+  err := r.Get(ctx, client.ObjectKey{
+    Name:      "cloud-firewall-controller",
+    Namespace: "kube-system",
+  },
+    &ctrlDpl)
+  if err != nil {
+    return fmt.Errorf("failed to get controller deployment: %s", err.Error())
+  }
 
-	klog.Infof("[%s/%s] set controller reference controller=(%s/%s)", cf.Namespace, cf.Name, ctrlDpl.Namespace, ctrlDpl.Name)
-	if err = ctrl.SetControllerReference(&ctrlDpl, cf, r.Scheme); err != nil {
-		return fmt.Errorf("failed to set controller reference: %s", err.Error())
-	}
+  klog.Infof("[%s/%s] set controller reference controller=(%s/%s)", cf.Namespace, cf.Name, ctrlDpl.Namespace, ctrlDpl.Name)
+  if err = ctrl.SetControllerReference(&ctrlDpl, cf, r.Scheme); err != nil {
+    return fmt.Errorf("failed to set controller reference: %s", err.Error())
+  }
 
-	return nil
+  return nil
 }
 
 func (r *CloudFirewallReconciler) checkFinalizer(ctx context.Context, cf *alpha1v1.CloudFirewall) (bool, error) {
-	finalizerName := "cloudfirewalls.networking.linode.com/finalizer"
-	deleted := false
+  finalizerName := "cloudfirewalls.networking.linode.com/finalizer"
+  deleted := false
 
-	if cf.DeletionTimestamp.IsZero() {
-		klog.Infof("[%s/%s] adding finalizer finalizer=(%s) id=(%s)", cf.Namespace, cf.Name, finalizerName, cf.Status.ID)
-		if !controllerutil.ContainsFinalizer(cf, finalizerName) {
-			controllerutil.AddFinalizer(cf, finalizerName)
-			return deleted, nil
-		}
-	} else {
-		if controllerutil.ContainsFinalizer(cf, finalizerName) {
-			// our finalizer is present, so lets handle firewall deletion
-			if err := r.deleteExternalResources(context.WithoutCancel(ctx), cf); err != nil {
-				// if fail to delete the external dependency here, return with error
-				// so that it can be retried.
-				if !FirewallIsNotFound(err) {
-					// The firewall exists, but some other error occured.
-					return deleted, err
-				}
-			}
-			klog.Infof("[%s/%s] firewall deleted id=(%s)", cf.Namespace, cf.Name, cf.Status.ID)
-			deleted = true
+  if cf.DeletionTimestamp.IsZero() {
+    klog.Infof("[%s/%s] adding finalizer finalizer=(%s) id=(%s)", cf.Namespace, cf.Name, finalizerName, cf.Status.ID)
+    if !controllerutil.ContainsFinalizer(cf, finalizerName) {
+      controllerutil.AddFinalizer(cf, finalizerName)
+      return deleted, nil
+    }
+  } else {
+    if controllerutil.ContainsFinalizer(cf, finalizerName) {
+      // our finalizer is present, so lets handle firewall deletion
+      if err := r.deleteExternalResources(context.WithoutCancel(ctx), cf); err != nil {
+        // if fail to delete the external dependency here, return with error
+        // so that it can be retried.
+        if !FirewallIsNotFound(err) {
+          // The firewall exists, but some other error occured.
+          return deleted, err
+        }
+      }
+      klog.Infof("[%s/%s] firewall deleted id=(%s)", cf.Namespace, cf.Name, cf.Status.ID)
+      deleted = true
 
-			// remove our finalizer from the list and update it.
-			if controllerutil.RemoveFinalizer(cf, finalizerName) {
-				if err := r.Update(context.WithoutCancel(ctx), cf); err != nil {
-					klog.Infof("[%s/%s] failed to update finalizer - %s", cf.Namespace, cf.Name, err.Error())
-				}
-			} else {
-				klog.Infof("[%s/%s] failed to remove finalizer id=(%s)", cf.Namespace, cf.Name, cf.Status.ID)
-			}
-		} else {
-			klog.Infof("[%s/%s] deletion called with no finalizer found id=(%s)", cf.Namespace, cf.Name, cf.Status.ID)
-		}
-	}
+      // remove our finalizer from the list and update it.
+      if controllerutil.RemoveFinalizer(cf, finalizerName) {
+        if err := r.Update(context.WithoutCancel(ctx), cf); err != nil {
+          klog.Infof("[%s/%s] failed to update finalizer - %s", cf.Namespace, cf.Name, err.Error())
+        }
+      } else {
+        klog.Infof("[%s/%s] failed to remove finalizer id=(%s)", cf.Namespace, cf.Name, cf.Status.ID)
+      }
+    } else {
+      klog.Infof("[%s/%s] deletion called with no finalizer found id=(%s)", cf.Namespace, cf.Name, cf.Status.ID)
+    }
+  }
 
-	return deleted, nil
+  return deleted, nil
 }
 
 func (r CloudFirewallReconciler) deleteExternalResources(ctx context.Context, cf *alpha1v1.CloudFirewall) (err error) {
-	klog.Infof("[%s/%s] deleting firewall (%s)", cf.Namespace, cf.Name, cf.Status.ID)
-	cfId, err := cf.GetID()
-	if err != nil {
-		err = fmt.Errorf("failed to get cluster ID - %s", err.Error())
-	}
+  klog.Infof("[%s/%s] deleting firewall (%s)", cf.Namespace, cf.Name, cf.Status.ID)
+  cfId, err := cf.GetID()
+  if err != nil {
+    err = fmt.Errorf("failed to get cluster ID - %s", err.Error())
+  }
 
-	if err = r.lcli.DeleteFirewall(ctx, cfId); err != nil {
-		return err
-	}
-	return
+  if err = r.lcli.DeleteFirewall(ctx, cfId); err != nil {
+    return err
+  }
+  return
 }
 
 func (r *CloudFirewallReconciler) removeNodes(ctx context.Context, nodes []int, firewallID int, cf *alpha1v1.CloudFirewall) (err error) {
-	for _, node := range nodes {
-		if err = r.lcli.DeleteFirewallDevice(ctx, firewallID, node); err != nil {
-			err = fmt.Errorf("failed to remove device (%d) from firewall (%d) - %s", node, firewallID, err.Error())
-		}
-		// Remove the node from status list
-		idx := slices.Index(cf.Status.Nodes, node)
-		cf.Status.Nodes = remove(cf.Status.Nodes, idx)
-	}
-	return
+  for _, node := range nodes {
+    if err = r.lcli.DeleteFirewallDevice(ctx, firewallID, node); err != nil {
+      err = fmt.Errorf("failed to remove device (%d) from firewall (%d) - %s", node, firewallID, err.Error())
+    }
+    // Remove the node from status list
+    idx := slices.Index(cf.Status.Nodes, node)
+    cf.Status.Nodes = remove(cf.Status.Nodes, idx)
+  }
+  return
 }
 
 func (r *CloudFirewallReconciler) addNodes(ctx context.Context, nodes []int, firewallID int, cf *alpha1v1.CloudFirewall) (err error) {
-	for _, node := range nodes {
-		opts := lgo.FirewallDeviceCreateOptions{
-			ID:   node,
-			Type: lgo.FirewallDeviceLinode,
-		}
-		if _, err = r.lcli.CreateFirewallDevice(ctx, firewallID, opts); err != nil {
-			err = fmt.Errorf("failed to add device (%d) to firewall (%d)", node, firewallID)
-			return
-		}
-		cf.Status.Nodes = append(cf.Status.Nodes, node)
-	}
-	return
+  for _, node := range nodes {
+    opts := lgo.FirewallDeviceCreateOptions{
+      ID:   node,
+      Type: lgo.FirewallDeviceLinode,
+    }
+    if _, err = r.lcli.CreateFirewallDevice(ctx, firewallID, opts); err != nil {
+      err = fmt.Errorf("failed to add device (%d) to firewall (%d)", node, firewallID)
+      return
+    }
+    cf.Status.Nodes = append(cf.Status.Nodes, node)
+  }
+  return
 }
 
 func (r *CloudFirewallReconciler) addNodeBalancers(ctx context.Context, nbs []int, firewallID int, cf *alpha1v1.CloudFirewall) (err error) {
-	for _, nb := range nbs {
-		opts := lgo.FirewallDeviceCreateOptions{
-			ID:   nb,
-			Type: lgo.FirewallDeviceNodeBalancer,
-		}
-		if _, err = r.lcli.CreateFirewallDevice(ctx, firewallID, opts); err != nil {
-			err = fmt.Errorf("failed to add nodebalancer (%d) to firewall (%d)", nb, firewallID)
-			return
-		}
-		cf.Status.NodeBalancers = append(cf.Status.NodeBalancers, nb)
-	}
-	return
+  for _, nb := range nbs {
+    opts := lgo.FirewallDeviceCreateOptions{
+      ID:   nb,
+      Type: lgo.FirewallDeviceNodeBalancer,
+    }
+    if _, err = r.lcli.CreateFirewallDevice(ctx, firewallID, opts); err != nil {
+      err = fmt.Errorf("failed to add nodebalancer (%d) to firewall (%d)", nb, firewallID)
+      return
+    }
+    cf.Status.NodeBalancers = append(cf.Status.NodeBalancers, nb)
+  }
+  return
 }
 
 func (r *CloudFirewallReconciler) removeNodeBalancers(ctx context.Context, nbs []int, firewallID int, cf *alpha1v1.CloudFirewall) (err error) {
-	for _, nb := range nbs {
-		if err = r.lcli.DeleteFirewallDevice(ctx, firewallID, nb); err != nil {
-			err = fmt.Errorf("failed to remove nodebalancer (%d) from firewall (%d) - %s", nb, firewallID, err.Error())
-		}
-		// Remove the nb from status list
-		idx := slices.Index(cf.Status.NodeBalancers, nb)
-		cf.Status.NodeBalancers = remove(cf.Status.NodeBalancers, idx)
-	}
-	return
+  for _, nb := range nbs {
+    if err = r.lcli.DeleteFirewallDevice(ctx, firewallID, nb); err != nil {
+      err = fmt.Errorf("failed to remove nodebalancer (%d) from firewall (%d) - %s", nb, firewallID, err.Error())
+    }
+    // Remove the nb from status list
+    idx := slices.Index(cf.Status.NodeBalancers, nb)
+    cf.Status.NodeBalancers = remove(cf.Status.NodeBalancers, idx)
+  }
+  return
 }
 
 func (r *CloudFirewallReconciler) checkNodeConflicts(ctx context.Context, cf *alpha1v1.CloudFirewall, nodes []int, nodeBalancers []int) error {
-	cfList := &alpha1v1.CloudFirewallList{}
-	if err := r.List(ctx, cfList); err != nil {
-		return fmt.Errorf("failed to list CloudFirewalls: %s", err.Error())
-	}
-	for _, otherCf := range cfList.Items {
-		if otherCf.Name == cf.Name && otherCf.Namespace == cf.Namespace {
-			continue
-		}
-		for _, nodeID := range nodes {
-			if slices.Contains(otherCf.Status.Nodes, nodeID) {
-				return fmt.Errorf("node %d is already assigned to CloudFirewall %s/%s", nodeID, otherCf.Namespace, otherCf.Name)
-			}
-		}
-		for _, nbID := range nodeBalancers {
-			if slices.Contains(otherCf.Status.NodeBalancers, nbID) {
-				return fmt.Errorf("nodebalancer %d is already assigned to CloudFirewall %s/%s", nbID, otherCf.Namespace, otherCf.Name)
-			}
-		}
-	}
-	return nil
+  cfList := &alpha1v1.CloudFirewallList{}
+  if err := r.List(ctx, cfList); err != nil {
+    return fmt.Errorf("failed to list CloudFirewalls: %s", err.Error())
+  }
+  for _, otherCf := range cfList.Items {
+    if otherCf.Name == cf.Name && otherCf.Namespace == cf.Namespace {
+      continue
+    }
+    for _, nodeID := range nodes {
+      if slices.Contains(otherCf.Status.Nodes, nodeID) {
+        return fmt.Errorf("node %d is already assigned to CloudFirewall %s/%s", nodeID, otherCf.Namespace, otherCf.Name)
+      }
+    }
+    for _, nbID := range nodeBalancers {
+      if slices.Contains(otherCf.Status.NodeBalancers, nbID) {
+        return fmt.Errorf("nodebalancer %d is already assigned to CloudFirewall %s/%s", nbID, otherCf.Namespace, otherCf.Name)
+      }
+    }
+  }
+  return nil
 }
 
 func getNodeBalancers(ctx context.Context, cf alpha1v1.CloudFirewall, cli client.Client, lcli lgo.Client) ([]int, error) {
-	if cf.Spec.ServiceSelector == nil {
-		return nil, nil
-	}
-	svcList := &corev1.ServiceList{}
-	if err := cli.List(ctx, svcList); err != nil {
-		return nil, err
-	}
-	var filteredSvcs []corev1.Service
-	selector, err := metav1.LabelSelectorAsSelector(cf.Spec.ServiceSelector)
-	if err != nil {
-		return nil, err
-	}
-	for _, svc := range svcList.Items {
-		if svc.Spec.Type == corev1.ServiceTypeLoadBalancer && selector.Matches(labels.Set(svc.Labels)) {
-			filteredSvcs = append(filteredSvcs, svc)
-		}
-	}
-	var nbIDs []int
-	// Get all nodebalancers from Linode
-	nbs, err := lcli.ListNodeBalancers(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	// Map IP to ID
-	ipToID := make(map[string]int)
-	for _, nb := range nbs {
-		ipToID[*nb.IPv4] = nb.ID
-		ipToID[*nb.IPv6] = nb.ID
-	}
-	for _, svc := range filteredSvcs {
-		for _, ing := range svc.Status.LoadBalancer.Ingress {
-			if id, ok := ipToID[ing.IP]; ok {
-				nbIDs = append(nbIDs, id)
-			}
-		}
-	}
-	return nbIDs, nil
+  if cf.Spec.ServiceSelector == nil {
+    return nil, nil
+  }
+  svcList := &corev1.ServiceList{}
+  if err := cli.List(ctx, svcList); err != nil {
+    return nil, err
+  }
+  var filteredSvcs []corev1.Service
+  selector, err := metav1.LabelSelectorAsSelector(cf.Spec.ServiceSelector)
+  if err != nil {
+    return nil, err
+  }
+  for _, svc := range svcList.Items {
+    if svc.Spec.Type == corev1.ServiceTypeLoadBalancer && selector.Matches(labels.Set(svc.Labels)) {
+      filteredSvcs = append(filteredSvcs, svc)
+    }
+  }
+  var nbIDs []int
+  // Get all nodebalancers from Linode
+  nbs, err := lcli.ListNodeBalancers(ctx, nil)
+  if err != nil {
+    return nil, err
+  }
+  // Map IP to ID
+  ipToID := make(map[string]int)
+  for _, nb := range nbs {
+    ipToID[*nb.IPv4] = nb.ID
+    ipToID[*nb.IPv6] = nb.ID
+  }
+  for _, svc := range filteredSvcs {
+    for _, ing := range svc.Status.LoadBalancer.Ingress {
+      if id, ok := ipToID[ing.IP]; ok {
+        nbIDs = append(nbIDs, id)
+      }
+    }
+  }
+  return nbIDs, nil
 }
 
 func (r *CloudFirewallReconciler) createFirewall(ctx context.Context, nodes []int, nodeBalancers []int, cf *alpha1v1.CloudFirewall, rs lgo.FirewallRuleSet) (err error) {
-	firewallLabel := fmt.Sprintf("lke-%s-%s-%s", r.ClusterID, cf.Namespace, cf.Name)
-	opts := lgo.FirewallCreateOptions{
-		Label: firewallLabel,
-		Rules: rs,
-		Devices: lgo.DevicesCreationOptions{
-			Linodes:      nodes,
-			NodeBalancers: nodeBalancers,
-		},
-	}
-	var firewall *lgo.Firewall
-	if firewall, err = r.lcli.CreateFirewall(ctx, opts); err != nil {
-		err = fmt.Errorf("failed to create firewall - %s", err.Error())
-	} else {
-		cf.Status.ID = strconv.Itoa(firewall.ID)
-		cf.Status.Nodes = nodes
-		cf.Status.NodeBalancers = nodeBalancers
-	}
-	return
+  firewallLabel := fmt.Sprintf("lke-%s-%s-%s", r.ClusterID, cf.Namespace, cf.Name)
+  opts := lgo.FirewallCreateOptions{
+    Label: firewallLabel,
+    Rules: rs,
+    Devices: lgo.DevicesCreationOptions{
+      Linodes:       nodes,
+      NodeBalancers: nodeBalancers,
+    },
+  }
+  var firewall *lgo.Firewall
+  if firewall, err = r.lcli.CreateFirewall(ctx, opts); err != nil {
+    err = fmt.Errorf("failed to create firewall - %s", err.Error())
+  } else {
+    cf.Status.ID = strconv.Itoa(firewall.ID)
+    cf.Status.Nodes = nodes
+    cf.Status.NodeBalancers = nodeBalancers
+  }
+  return
 }
 
 func nodeListChanges(ctx context.Context, cf alpha1v1.CloudFirewall, cli client.Client) (nodes []int, added []int, removed []int, err error) {
-	// Get list of cluster nodes
-	nodeList := &corev1.NodeList{}
-	if err = cli.List(ctx, nodeList); err != nil {
-		err = fmt.Errorf("unable to get node list - %s", err.Error())
-		return
-	}
+  // Get list of cluster nodes
+  nodeList := &corev1.NodeList{}
+  if err = cli.List(ctx, nodeList); err != nil {
+    err = fmt.Errorf("unable to get node list - %s", err.Error())
+    return
+  }
 
-	var filteredNodes []corev1.Node
-	if cf.Spec.NodeSelector != nil {
-		selector, err := metav1.LabelSelectorAsSelector(cf.Spec.NodeSelector)
-		if err != nil {
-			klog.Errorf("[%s/%s] invalid node selector: %v", cf.Namespace, cf.Name, err)
-			return nodes, added, removed, err
-		}
-		for _, node := range nodeList.Items {
-			if selector.Matches(labels.Set(node.Labels)) {
-				filteredNodes = append(filteredNodes, node)
-			}
-		}
-	} else {
-		filteredNodes = nodeList.Items
-	}
+  var filteredNodes []corev1.Node
+  if cf.Spec.NodeSelector != nil {
+    selector, err := metav1.LabelSelectorAsSelector(cf.Spec.NodeSelector)
+    if err != nil {
+      klog.Errorf("[%s/%s] invalid node selector: %v", cf.Namespace, cf.Name, err)
+      return nodes, added, removed, err
+    }
+    for _, node := range nodeList.Items {
+      if selector.Matches(labels.Set(node.Labels)) {
+        filteredNodes = append(filteredNodes, node)
+      }
+    }
+  } else {
+    filteredNodes = nodeList.Items
+  }
 
-	// Build list of NodeIDs from filtered nodes
-	// This could be optimized, but for simplicity it is what it is
-	for _, node := range filteredNodes {
-		var nodeID int
-		if node.Spec.ProviderID == "" {
-			// On node deletion an event will be triggered and the node object will exists past
-			// the call to delete the underlying linode. The ProviderID will be empty as soon
-			// as the Linode is deleted.
-			continue
-		}
-		klog.V(3).Infof("[%s/%s] found provider(%s)", cf.Namespace, cf.Name, node.Spec.ProviderID)
-		nodeIDstr := trimProviderID(node.Spec.ProviderID)
-		klog.V(3).Infof("[%s/%s] trimmed nodeID(%s)", cf.Namespace, cf.Name, nodeIDstr)
-		nodeID, err = strconv.Atoi(trimProviderID(node.Spec.ProviderID))
-		if err != nil {
-			err = fmt.Errorf("failed to parse nodeID (%v)", node.Spec.ProviderID)
-			return
-		}
-		klog.V(2).Infof("[%s/%s] found node (%d)", cf.Namespace, cf.Name, nodeID)
-		nodes = append(nodes, nodeID)
-	}
+  // Build list of NodeIDs from filtered nodes
+  // This could be optimized, but for simplicity it is what it is
+  for _, node := range filteredNodes {
+    var nodeID int
+    if node.Spec.ProviderID == "" {
+      // On node deletion an event will be triggered and the node object will exists past
+      // the call to delete the underlying linode. The ProviderID will be empty as soon
+      // as the Linode is deleted.
+      continue
+    }
+    klog.V(3).Infof("[%s/%s] found provider(%s)", cf.Namespace, cf.Name, node.Spec.ProviderID)
+    nodeIDstr := trimProviderID(node.Spec.ProviderID)
+    klog.V(3).Infof("[%s/%s] trimmed nodeID(%s)", cf.Namespace, cf.Name, nodeIDstr)
+    nodeID, err = strconv.Atoi(trimProviderID(node.Spec.ProviderID))
+    if err != nil {
+      err = fmt.Errorf("failed to parse nodeID (%v)", node.Spec.ProviderID)
+      return
+    }
+    klog.V(2).Infof("[%s/%s] found node (%d)", cf.Namespace, cf.Name, nodeID)
+    nodes = append(nodes, nodeID)
+  }
 
-	for _, node := range nodes {
-		if !slices.Contains(cf.Status.Nodes, node) {
-			added = append(added, node)
-		}
-	}
+  for _, node := range nodes {
+    if !slices.Contains(cf.Status.Nodes, node) {
+      added = append(added, node)
+    }
+  }
 
-	for _, node := range cf.Status.Nodes {
-		if !slices.Contains(nodes, node) {
-			removed = append(removed, node)
-		}
-	}
-	return
+  for _, node := range cf.Status.Nodes {
+    if !slices.Contains(nodes, node) {
+      removed = append(removed, node)
+    }
+  }
+  return
 }
 
 func nodeBalancerListChanges(current []int, status []int) (added []int, removed []int) {
-	for _, nb := range current {
-		if !slices.Contains(status, nb) {
-			added = append(added, nb)
-		}
-	}
-	for _, nb := range status {
-		if !slices.Contains(current, nb) {
-			removed = append(removed, nb)
-		}
-	}
-	return
+  for _, nb := range current {
+    if !slices.Contains(status, nb) {
+      added = append(added, nb)
+    }
+  }
+  for _, nb := range status {
+    if !slices.Contains(current, nb) {
+      removed = append(removed, nb)
+    }
+  }
+  return
 }
 
 func trimProviderID(providerID string) (nodeID string) {
-	nodeID, _ = strings.CutPrefix(providerID, "linode://")
-	return
+  nodeID, _ = strings.CutPrefix(providerID, "linode://")
+  return
 }
 
 func equalFirewallRuleSets(a *lgo.FirewallRuleSet, b *lgo.FirewallRuleSet) bool {
-	if a == nil && b == nil {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	return a.InboundPolicy == b.InboundPolicy &&
-		a.OutboundPolicy == b.OutboundPolicy &&
-		equalFirewallRules(a.Inbound, b.Inbound) &&
-		equalFirewallRules(a.Outbound, b.Outbound)
+  if a == nil && b == nil {
+    return true
+  }
+  if a == nil || b == nil {
+    return false
+  }
+  return a.InboundPolicy == b.InboundPolicy &&
+    a.OutboundPolicy == b.OutboundPolicy &&
+    equalFirewallRules(a.Inbound, b.Inbound) &&
+    equalFirewallRules(a.Outbound, b.Outbound)
 }
 
 func equalFirewallRules(a []lgo.FirewallRule, b []lgo.FirewallRule) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if !equalFirewallRule(a[i], b[i]) {
-			return false
-		}
-	}
-	return true
+  if len(a) != len(b) {
+    return false
+  }
+  for i := range a {
+    if !equalFirewallRule(a[i], b[i]) {
+      return false
+    }
+  }
+  return true
 }
 
 func equalFirewallRule(a lgo.FirewallRule, b lgo.FirewallRule) bool {
-	return a.Action == b.Action &&
-		a.Label == b.Label &&
-		a.Description == b.Description &&
-		a.Ports == b.Ports &&
-		a.Protocol == b.Protocol &&
-		equalCIDRs(a.Addresses.IPv4, b.Addresses.IPv4, 4) &&
-		equalCIDRs(a.Addresses.IPv6, b.Addresses.IPv6, 6)
+  return a.Action == b.Action &&
+    a.Label == b.Label &&
+    a.Description == b.Description &&
+    a.Ports == b.Ports &&
+    a.Protocol == b.Protocol &&
+    equalCIDRs(a.Addresses.IPv4, b.Addresses.IPv4, 4) &&
+    equalCIDRs(a.Addresses.IPv6, b.Addresses.IPv6, 6)
 }
 
 func cidrString(input string, ipVer int) string {
-	ip, mask, err := net.ParseCIDR(input)
-	if err != nil {
-		ip = net.ParseIP(input)
-		if ip == nil {
-			return ""
-		}
-		if ipVer == 4 {
-			return ip.String() + "/32"
-		}
-		if ipVer == 6 {
-			return ip.String() + "/128"
-		}
-	}
-	return mask.String()
+  ip, mask, err := net.ParseCIDR(input)
+  if err != nil {
+    ip = net.ParseIP(input)
+    if ip == nil {
+      return ""
+    }
+    if ipVer == 4 {
+      return ip.String() + "/32"
+    }
+    if ipVer == 6 {
+      return ip.String() + "/128"
+    }
+  }
+  return mask.String()
 }
 
 func equalCIDRs(a *[]string, b *[]string, ipVer int) bool {
-	if a == nil && b == nil {
-		return true
-	}
-	if a == nil || b == nil || (len(*a) != len(*b)) {
-		return false
-	}
-	aCopy := []string{}
-	bCopy := []string{}
-	for i := range *a {
-		aCopy = append(aCopy, (*a)[i])
-		bCopy = append(bCopy, (*b)[i])
-	}
-	sort.Strings(aCopy)
-	sort.Strings(bCopy)
-	for i := range aCopy {
-		if cidrString(aCopy[i], ipVer) != cidrString(bCopy[i], ipVer) {
-			return false
-		}
-	}
-	return true
+  if a == nil && b == nil {
+    return true
+  }
+  if a == nil || b == nil || (len(*a) != len(*b)) {
+    return false
+  }
+  aCopy := []string{}
+  bCopy := []string{}
+  for i := range *a {
+    aCopy = append(aCopy, (*a)[i])
+    bCopy = append(bCopy, (*b)[i])
+  }
+  sort.Strings(aCopy)
+  sort.Strings(bCopy)
+  for i := range aCopy {
+    if cidrString(aCopy[i], ipVer) != cidrString(bCopy[i], ipVer) {
+      return false
+    }
+  }
+  return true
 }
 
 func getClusterID(ctx context.Context, cli client.Client) (string, error) {
-	clusterID := ""
-	nodes := corev1.NodeList{}
-	if err := cli.List(ctx, &nodes); err != nil {
-		return "", fmt.Errorf("unable to get clusterID, no nodes found")
-	}
-	if len(nodes.Items) > 0 {
-		found := false
-		nodeName := nodes.Items[0].GetName()
-		clusterLabel, _, found := strings.Cut(nodeName, "-")
-		if found {
-			klog.Infof("found clusterLabel(%s)", clusterLabel)
-			clusterID, found = strings.CutPrefix(clusterLabel, "lke")
-		} else {
-			return "", fmt.Errorf("unable to extract clusterLabel from node label (%s)", nodeName)
-		}
-		if !found {
-			return "", fmt.Errorf("unable to trim 'lke' from clusterLabel (%s)", clusterID)
-		}
-		klog.Infof("found clusterID(%s)", clusterID)
-	}
-	return clusterID, nil
+  clusterID := ""
+  nodes := corev1.NodeList{}
+  if err := cli.List(ctx, &nodes); err != nil {
+    return "", fmt.Errorf("unable to get clusterID, no nodes found")
+  }
+  if len(nodes.Items) > 0 {
+    found := false
+    nodeName := nodes.Items[0].GetName()
+    clusterLabel, _, found := strings.Cut(nodeName, "-")
+    if found {
+      klog.Infof("found clusterLabel(%s)", clusterLabel)
+      clusterID, found = strings.CutPrefix(clusterLabel, "lke")
+    } else {
+      return "", fmt.Errorf("unable to extract clusterLabel from node label (%s)", nodeName)
+    }
+    if !found {
+      return "", fmt.Errorf("unable to trim 'lke' from clusterLabel (%s)", clusterID)
+    }
+    klog.Infof("found clusterID(%s)", clusterID)
+  }
+  return clusterID, nil
 }
 
 func FirewallIsNotFound(err error) bool {
-	originalErr, ok := err.(*lgo.Error)
-	klog.Infof("linode client error (%+v)", originalErr.Code)
-	if ok && originalErr.Code == 404 {
-		return true
-	}
-	return false
+  originalErr, ok := err.(*lgo.Error)
+  klog.Infof("linode client error (%+v)", originalErr.Code)
+  if ok && originalErr.Code == 404 {
+    return true
+  }
+  return false
 }
 
 func toLinodeFirewallRuleset(ruleset alpha1v1.RulesetSpec) (lgo.FirewallRuleSet, error) {
-	var lrs lgo.FirewallRuleSet
-	var err error
+  var lrs lgo.FirewallRuleSet
+  var err error
 
-	rulesetStr, err := json.Marshal(ruleset)
-	if err != nil {
-		return lgo.FirewallRuleSet{}, fmt.Errorf("unable to marshal CloudFirewall ruleset - %s", err.Error())
-	}
+  rulesetStr, err := json.Marshal(ruleset)
+  if err != nil {
+    return lgo.FirewallRuleSet{}, fmt.Errorf("unable to marshal CloudFirewall ruleset - %s", err.Error())
+  }
 
-	err = json.Unmarshal(rulesetStr, &lrs)
-	if err != nil {
-		return lgo.FirewallRuleSet{}, fmt.Errorf("unable to unmarshal CloudFirewall ruleset - %s", err.Error())
-	}
+  err = json.Unmarshal(rulesetStr, &lrs)
+  if err != nil {
+    return lgo.FirewallRuleSet{}, fmt.Errorf("unable to unmarshal CloudFirewall ruleset - %s", err.Error())
+  }
 
-	return lrs, nil
+  return lrs, nil
 }
 
 // defaultRulesEnabled returns true when cf.Spec.DefaultRules == nil or true
 func defaultRulesEnabled(spec alpha1v1.CloudFirewallSpec) bool {
-	if spec.DefaultRules == nil {
-		return true
-	}
-	return *spec.DefaultRules
+  if spec.DefaultRules == nil {
+    return true
+  }
+  return *spec.DefaultRules
 }
 
 // effectiveRulesetSpec merges the default ruleset with user-provided rules
 // when default rules are enabled. User rules are appended after defaults to
 // ensure consistent evaluation order. Policies default to DROP/ACCEPT if empty.
 func effectiveRulesetSpec(spec alpha1v1.CloudFirewallSpec) alpha1v1.RulesetSpec {
-	rs := alpha1v1.RulesetSpec{}
+  rs := alpha1v1.RulesetSpec{}
 
-	// Start with policies from spec or defaults
-	if spec.Ruleset.InboundPolicy != "" {
-		rs.InboundPolicy = spec.Ruleset.InboundPolicy
-	} else {
-		rs.InboundPolicy = "DROP"
-	}
-	if spec.Ruleset.OutboundPolicy != "" {
-		rs.OutboundPolicy = spec.Ruleset.OutboundPolicy
-	} else {
-		rs.OutboundPolicy = "ACCEPT"
-	}
+  // Start with policies from spec or defaults
+  if spec.Ruleset.InboundPolicy != "" {
+    rs.InboundPolicy = spec.Ruleset.InboundPolicy
+  } else {
+    rs.InboundPolicy = "DROP"
+  }
+  if spec.Ruleset.OutboundPolicy != "" {
+    rs.OutboundPolicy = spec.Ruleset.OutboundPolicy
+  } else {
+    rs.OutboundPolicy = "ACCEPT"
+  }
 
-	// Merge defaults when enabled (skip any that are already in user rules)
-	if defaultRulesEnabled(spec) {
-		def := rules.DefaultRuleset()
-		// Append default inbound rules first, but skip duplicates
-		for _, defaultRule := range def.Inbound {
-			if !containsRule(spec.Ruleset.Inbound, defaultRule) {
-				rs.Inbound = append(rs.Inbound, defaultRule)
-			}
-		}
-	}
-	// Append user inbound rules
-	if len(spec.Ruleset.Inbound) > 0 {
-		rs.Inbound = append(rs.Inbound, spec.Ruleset.Inbound...)
-	}
-	// Outbound rules: defaults currently empty; still allow user outbound
-	if defaultRulesEnabled(spec) {
-		def := rules.DefaultRuleset()
-		if len(def.Outbound) > 0 {
-			for _, defaultRule := range def.Outbound {
-				if !containsRule(spec.Ruleset.Outbound, defaultRule) {
-					rs.Outbound = append(rs.Outbound, defaultRule)
-				}
-			}
-		}
-	}
-	if len(spec.Ruleset.Outbound) > 0 {
-		rs.Outbound = append(rs.Outbound, spec.Ruleset.Outbound...)
-	}
+  // Merge defaults when enabled (skip any that are already in user rules)
+  if defaultRulesEnabled(spec) {
+    def := rules.DefaultRuleset()
+    // Append default inbound rules first, but skip duplicates
+    for _, defaultRule := range def.Inbound {
+      if !containsRule(spec.Ruleset.Inbound, defaultRule) {
+        rs.Inbound = append(rs.Inbound, defaultRule)
+      }
+    }
+  }
+  // Append user inbound rules
+  if len(spec.Ruleset.Inbound) > 0 {
+    rs.Inbound = append(rs.Inbound, spec.Ruleset.Inbound...)
+  }
+  // Outbound rules: defaults currently empty; still allow user outbound
+  if defaultRulesEnabled(spec) {
+    def := rules.DefaultRuleset()
+    if len(def.Outbound) > 0 {
+      for _, defaultRule := range def.Outbound {
+        if !containsRule(spec.Ruleset.Outbound, defaultRule) {
+          rs.Outbound = append(rs.Outbound, defaultRule)
+        }
+      }
+    }
+  }
+  if len(spec.Ruleset.Outbound) > 0 {
+    rs.Outbound = append(rs.Outbound, spec.Ruleset.Outbound...)
+  }
 
-	return rs
+  return rs
 }
 
 // containsRule checks if the given slice already contains an equal rule
 func containsRule(list []alpha1v1.RuleSpec, target alpha1v1.RuleSpec) bool {
-	for _, r := range list {
-		if ruleEqual(r, target) {
-			return true
-		}
-	}
-	return false
+  for _, r := range list {
+    if ruleEqual(r, target) {
+      return true
+    }
+  }
+  return false
 }
 
 // ruleEqual compares two rules for equality
 func ruleEqual(a, b alpha1v1.RuleSpec) bool {
-	if a.Action != b.Action || a.Label != b.Label || a.Description != b.Description || a.Ports != b.Ports || a.Protocol != b.Protocol {
-		return false
-	}
-	return addressEqual(a.Addresses, b.Addresses)
+  if a.Action != b.Action || a.Label != b.Label || a.Description != b.Description || a.Ports != b.Ports || a.Protocol != b.Protocol {
+    return false
+  }
+  return addressEqual(a.Addresses, b.Addresses)
 }
 
 // addressEqual compares two address specs for equality
 func addressEqual(a, b alpha1v1.AddressSpec) bool {
-	if !stringSlicesEqual(a.IPv4, b.IPv4) {
-		return false
-	}
-	if !stringSlicesEqual(a.IPv6, b.IPv6) {
-		return false
-	}
-	return true
+  if !stringSlicesEqual(a.IPv4, b.IPv4) {
+    return false
+  }
+  if !stringSlicesEqual(a.IPv6, b.IPv6) {
+    return false
+  }
+  return true
 }
 
 // stringSlicesEqual compares two string slice pointers for equality
 func stringSlicesEqual(a, b *[]string) bool {
-	if a == nil && b == nil {
-		return true
-	}
-	if (a == nil) != (b == nil) {
-		return false
-	}
-	if len(*a) != len(*b) {
-		return false
-	}
-	for i := range *a {
-		if (*a)[i] != (*b)[i] {
-			return false
-		}
-	}
-	return true
+  if a == nil && b == nil {
+    return true
+  }
+  if (a == nil) != (b == nil) {
+    return false
+  }
+  if len(*a) != len(*b) {
+    return false
+  }
+  for i := range *a {
+    if (*a)[i] != (*b)[i] {
+      return false
+    }
+  }
+  return true
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *CloudFirewallReconciler) SetupWithManager(mgr ctrl.Manager, opts internal.LinodeApiOptions) error {
-	r.lApiOpts = opts
+  r.lApiOpts = opts
 
-	latestRevision := rules.LatestRevision()
-	klog.Infof("latest ruleset revision: %s", latestRevision)
-	previousRevisions := rules.PreviousRevisions()
-	for _, rev := range previousRevisions {
-		klog.Infof("previous ruleset revision: %s", rev)
-	}
+  latestRevision := rules.LatestRevision()
+  klog.Infof("latest ruleset revision: %s", latestRevision)
+  previousRevisions := rules.PreviousRevisions()
+  for _, rev := range previousRevisions {
+    klog.Infof("previous ruleset revision: %s", rev)
+  }
 
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&alpha1v1.CloudFirewall{}).
+  return ctrl.NewControllerManagedBy(mgr).
+    For(&alpha1v1.CloudFirewall{}).
 
-		// Watch for cluster worker node changes to trigger reconciliation
-		// to update firewalls appropriately. These events do not tell us explicitly
-		// what has changed and may be triggered more often than expected. This is due
-		// to the Node controller updating status fields that are not relevent to this controller.
-		// We must watch all status changes due to the IP set of a Node being stored
-		// in the Status object, which we cannot filter until the reconciliation phase.
-		Watches(&corev1.Node{},
-			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, node client.Object) []reconcile.Request {
-				klog.V(2).Infof("[%s] node updated: %s", node.GetNamespace(), node.GetName())
-				cfList := &alpha1v1.CloudFirewallList{}
-				if err := mgr.GetClient().List(ctx, cfList); err != nil {
-					klog.Errorf("failed to list CloudFirewalls - %s", err.Error())
-					return nil
-				}
-				reqs := make([]reconcile.Request, 0, len(cfList.Items))
+    // Watch for cluster worker node changes to trigger reconciliation
+    // to update firewalls appropriately. These events do not tell us explicitly
+    // what has changed and may be triggered more often than expected. This is due
+    // to the Node controller updating status fields that are not relevent to this controller.
+    // We must watch all status changes due to the IP set of a Node being stored
+    // in the Status object, which we cannot filter until the reconciliation phase.
+    Watches(&corev1.Node{},
+      handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, node client.Object) []reconcile.Request {
+        klog.V(2).Infof("[%s] node updated: %s", node.GetNamespace(), node.GetName())
+        cfList := &alpha1v1.CloudFirewallList{}
+        if err := mgr.GetClient().List(ctx, cfList); err != nil {
+          klog.Errorf("failed to list CloudFirewalls - %s", err.Error())
+          return nil
+        }
+        reqs := make([]reconcile.Request, 0, len(cfList.Items))
 
-				for _, item := range cfList.Items {
+        for _, item := range cfList.Items {
 
-					rulesHash := rules.Sha256Hash(item.Spec.Ruleset)
-					klog.V(2).Infof("[%s/%s] CloudFirewall ruleset hash: %s", item.Namespace, item.Name, rulesHash)
+          rulesHash := rules.Sha256Hash(item.Spec.Ruleset)
+          klog.V(2).Infof("[%s/%s] CloudFirewall ruleset hash: %s", item.Namespace, item.Name, rulesHash)
 
-					// Compute what the effective rules would be if we applied defaults plus user rules
-					effective := effectiveRulesetSpec(item.Spec)
-					effectiveHash := rules.Sha256Hash(effective)
-					if effectiveHash == latestRevision {
-						klog.Infof("[%s/%s] CloudFirewall object is up-to-date with latest revision %s", item.Namespace, item.Name, latestRevision)
-					} else {
-						klog.Infof("[%s/%s] CloudFirewall object effective ruleset does not match latest revision %s != %s", item.Namespace, item.Name, effectiveHash, latestRevision)
+          // Compute what the effective rules would be if we applied defaults plus user rules
+          effective := effectiveRulesetSpec(item.Spec)
+          effectiveHash := rules.Sha256Hash(effective)
+          if effectiveHash == latestRevision {
+            klog.Infof("[%s/%s] CloudFirewall object is up-to-date with latest revision %s", item.Namespace, item.Name, latestRevision)
+          } else {
+            klog.Infof("[%s/%s] CloudFirewall object effective ruleset does not match latest revision %s != %s", item.Namespace, item.Name, effectiveHash, latestRevision)
 
-						if slices.Contains(previousRevisions, rulesHash) || slices.Contains(previousRevisions, effectiveHash) {
-							klog.Infof("[%s/%s] CloudFirewall object ruleset matches a previous revision %s", item.Namespace, item.Name, rulesHash)
-							// Migrate to new model: enable defaultRules and remove explicit default rules from spec
-							trueVal := true
-							item.Spec.DefaultRules = &trueVal
-							item.Spec.Ruleset = alpha1v1.RulesetSpec{}
-							item.Status.LastUpdate = metav1.Time{Time: time.Now()}
-							if err := mgr.GetClient().Update(ctx, &item); err != nil {
-								klog.Errorf("[%s/%s] failed to update default CloudFirewall object - %s", item.Namespace, item.Name, err.Error())
-							}
-							// No need to schedule a reconcile here, the update of the object will generate a reconciliation
-							// and we can continue to the next item.
-							klog.Infof("[%s/%s] CloudFirewall object migrated to defaultRules model. Skipping scheduling", item.Namespace, item.Name)
-							continue
-
-						} else {
-							klog.Warningf("[%s/%s] CloudFirewall object ruleset does not match latest or previous revisions. Cannot upgrade custom ruleset %s != %s or %v", item.Namespace, item.Name, effectiveHash, latestRevision, previousRevisions)
-						}
-					}
-
-					klog.Infof("[%s] scheduling CloudFirewall reconciliation: %s", item.Namespace, item.Name)
-					reqs = append(reqs, reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Namespace: item.GetNamespace(),
-							Name:      item.GetName(),
-						},
-					})
-				}
-				return reqs
-			}),
-			builder.WithPredicates(
-				predicate.Or(
-					predicate.GenerationChangedPredicate{},
-					predicate.AnnotationChangedPredicate{},
-						))).
-					Watches(&corev1.Service{},
-						handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-              svc, ok := obj.(*corev1.Service)
-              if !ok {
-                  // This should almost never happen when using Watches(&corev1.Service{}, ...)
-                  klog.V(4).Infof("object was not a *corev1.Service: %T", obj)
-                  return nil
+            if slices.Contains(previousRevisions, rulesHash) || slices.Contains(previousRevisions, effectiveHash) {
+              klog.Infof("[%s/%s] CloudFirewall object ruleset matches a previous revision %s", item.Namespace, item.Name, rulesHash)
+              // Migrate to new model: enable defaultRules and remove explicit default rules from spec
+              trueVal := true
+              item.Spec.DefaultRules = &trueVal
+              item.Spec.Ruleset = alpha1v1.RulesetSpec{}
+              item.Status.LastUpdate = metav1.Time{Time: time.Now()}
+              if err := mgr.GetClient().Update(ctx, &item); err != nil {
+                klog.Errorf("[%s/%s] failed to update default CloudFirewall object - %s", item.Namespace, item.Name, err.Error())
               }
+              // No need to schedule a reconcile here, the update of the object will generate a reconciliation
+              // and we can continue to the next item.
+              klog.Infof("[%s/%s] CloudFirewall object migrated to defaultRules model. Skipping scheduling", item.Namespace, item.Name)
+              continue
 
-							klog.V(2).Infof("[%s] service updated: %s", svc.GetNamespace(), svc.GetName())
-							if svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
-								return nil
-							}
-							cfList := &alpha1v1.CloudFirewallList{}
-							if err := mgr.GetClient().List(ctx, cfList); err != nil {
-								klog.Errorf("failed to list CloudFirewalls - %s", err.Error())
-								return nil
-							}
-							reqs := make([]reconcile.Request, 0, len(cfList.Items))
-							for _, item := range cfList.Items {
-								if item.Spec.ServiceSelector != nil {
-									selector, err := metav1.LabelSelectorAsSelector(item.Spec.ServiceSelector)
-									if err != nil {
-										continue
-									}
-									if selector.Matches(labels.Set(svc.Labels)) {
-										klog.V(2).Infof("[%s/%s] service matches selector, scheduling CloudFirewall reconciliation", item.Namespace, item.Name)
-										reqs = append(reqs, reconcile.Request{
-											NamespacedName: types.NamespacedName{
-												Namespace: item.GetNamespace(),
-												Name:      item.GetName(),
-											},
-										})
-									}
-								}
-							}
-							return reqs
-						}),
-						builder.WithPredicates(
-							predicate.Or(
-								predicate.GenerationChangedPredicate{},
-								predicate.AnnotationChangedPredicate{},
-							))).Complete(r)
+            } else {
+              klog.Warningf("[%s/%s] CloudFirewall object ruleset does not match latest or previous revisions. Cannot upgrade custom ruleset %s != %s or %v", item.Namespace, item.Name, effectiveHash, latestRevision, previousRevisions)
+            }
+          }
+
+          klog.Infof("[%s] scheduling CloudFirewall reconciliation: %s", item.Namespace, item.Name)
+          reqs = append(reqs, reconcile.Request{
+            NamespacedName: types.NamespacedName{
+              Namespace: item.GetNamespace(),
+              Name:      item.GetName(),
+            },
+          })
+        }
+        return reqs
+      }),
+      builder.WithPredicates(
+        predicate.Or(
+          predicate.GenerationChangedPredicate{},
+          predicate.AnnotationChangedPredicate{},
+        ))).
+    Watches(&corev1.Service{},
+      handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+        svc, ok := obj.(*corev1.Service)
+        if !ok {
+          // This should almost never happen when using Watches(&corev1.Service{}, ...)
+          klog.V(4).Infof("object was not a *corev1.Service: %T", obj)
+          return nil
+        }
+
+        klog.V(2).Infof("[%s] service updated: %s", svc.GetNamespace(), svc.GetName())
+        if svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
+          return nil
+        }
+        cfList := &alpha1v1.CloudFirewallList{}
+        if err := mgr.GetClient().List(ctx, cfList); err != nil {
+          klog.Errorf("failed to list CloudFirewalls - %s", err.Error())
+          return nil
+        }
+        reqs := make([]reconcile.Request, 0, len(cfList.Items))
+        for _, item := range cfList.Items {
+          if item.Spec.ServiceSelector != nil {
+            selector, err := metav1.LabelSelectorAsSelector(item.Spec.ServiceSelector)
+            if err != nil {
+              continue
+            }
+            if selector.Matches(labels.Set(svc.Labels)) {
+              klog.V(2).Infof("[%s/%s] service matches selector, scheduling CloudFirewall reconciliation", item.Namespace, item.Name)
+              reqs = append(reqs, reconcile.Request{
+                NamespacedName: types.NamespacedName{
+                  Namespace: item.GetNamespace(),
+                  Name:      item.GetName(),
+                },
+              })
+            }
+          }
+        }
+        return reqs
+      }),
+      builder.WithPredicates(
+        predicate.Or(
+          predicate.GenerationChangedPredicate{},
+          predicate.AnnotationChangedPredicate{},
+        ))).Complete(r)
 }
 
 func (r *CloudFirewallReconciler) createLinodeClient(opts internal.LinodeApiOptions) (err error) {
-	creds := &corev1.Secret{}
-	err = r.Get(context.TODO(), client.ObjectKey{
-		Name:      opts.Credentials,
-		Namespace: opts.CredentialsNs,
-	},
-		creds)
-	if err != nil {
-		return fmt.Errorf("failed to get API credentails: %s", err.Error())
-	}
+  creds := &corev1.Secret{}
+  err = r.Get(context.TODO(), client.ObjectKey{
+    Name:      opts.Credentials,
+    Namespace: opts.CredentialsNs,
+  },
+    creds)
+  if err != nil {
+    return fmt.Errorf("failed to get API credentails: %s", err.Error())
+  }
 
-	apiKey := creds.Data["token"]
-	if len(apiKey) == 0 {
-		return fmt.Errorf("failed to parse Linode API token")
-	}
-	tokenSource := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: string(apiKey[:])})
-	oauth2Client := &http.Client{
-		Transport: &oauth2.Transport{
-			Source: tokenSource,
-		},
-	}
-	r.lcli = lgo.NewClient(oauth2Client)
-	r.lcli.SetUserAgent(fmt.Sprintf("cloud-firewall-controller %s", lgo.DefaultUserAgent))
-	r.lcli.SetDebug(opts.Debug)
-	return
+  apiKey := creds.Data["token"]
+  if len(apiKey) == 0 {
+    return fmt.Errorf("failed to parse Linode API token")
+  }
+  tokenSource := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: string(apiKey[:])})
+  oauth2Client := &http.Client{
+    Transport: &oauth2.Transport{
+      Source: tokenSource,
+    },
+  }
+  r.lcli = lgo.NewClient(oauth2Client)
+  r.lcli.SetUserAgent(fmt.Sprintf("cloud-firewall-controller %s", lgo.DefaultUserAgent))
+  r.lcli.SetDebug(opts.Debug)
+  return
 }
